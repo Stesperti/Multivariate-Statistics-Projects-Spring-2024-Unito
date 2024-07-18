@@ -1,0 +1,764 @@
+---
+title: "Multivariate Statistical Analysis Problem set 2"
+author: "Lorenzo Sala 943481 - Stefano Sperti 947676 - Francesco Virgili 1101739 "
+date: "Università di Torino"
+output: pdf_document
+---
+
+
+```{r echo = T, results = 'hide',message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.align="center")
+getwd()
+set.seed(222) 
+library(MASS)
+library(corrplot)
+library(psych)
+library(gridExtra)
+library(ggplot2)
+library(ellipse)
+library(randomForest)
+```
+# Exercise 1
+
+```{r,echo=FALSE}
+#setwd("C:/Users/fravi/Desktop/Universita/Laurea Magistrale/Anno 1/2° semestre/Multivariate statistical analysis/PS2")
+psych<-read.table("data/psych.txt",header=T)
+```
+
+
+## 1.1
+We use the Grant-White student data. We remove the "Case', "Sex" and "Age variable", since our analysis revolves only around psychological tests.
+
+```{r , echo=TRUE}
+grant <- psych[which(psych$group=="GRANT"),4:27]
+n<-dim(grant)[1]
+p<-dim(grant)[2]
+var.names<-names(grant)
+```
+
+We scale the dataset so that we will work with standardized values. We also create a correlation plot to better visualize how the (many) variables are correlated with each other.
+```{r , echo=TRUE,out.width="80%"}
+# V1 visual perception, V2 cubes, V3 paper form board,
+# V4 flags, V5 general information, V6 paragraph comprehension,
+# V7 sentence completion, V8 word classification, V9 word meaning,
+# V10 addition, V11 code, V12 counting dots,
+# V13 straight-curved capitals, V14 word recognition, V15 number recognition,
+# V16 figure recognition, V17 object-number, V18 number-figure,
+# V19 figure-word, V20 deduction, V21 numerical puzzles,
+# V22 problem reasoning, V23 series completion, V24 arithmetic problems.
+
+X <- scale(grant)
+
+# Correlation matrix of the data
+R <- cor(X)
+corrplot(R,method="square")
+```
+From the correlation plot we observe that all variable are positively correlated, moreover the plot already highlights that some group of variables are highly correlated between them and less correlated with the other variables. In particular, we can see how the variables $V5,\;V6,\;V7,\;V8,\;V9$ show the highest between correlation. Other -less evident- examples may be found in the groups composed of the variables $V10,\;V11,\;V12,\;V13$ and the one composed by $V20,\;V21,\;V22,\;V23,\;V24$. Another noteworthy observation is the correlation between V24 and V10, which exceeds 0.5. However, considering the need to establish distinct groups and the comparatively lower correlations between V24 and both V13 and V12, it is better to form two separate groups.
+
+We perform tests for normality to check that the assumption on which ML-FA is based holds.
+```{r , echo=TRUE,out.width="70%"}
+dM <- mahalanobis(X,colMeans(X),cov(X))
+qqplot(qchisq(ppoints(dM),df=p),dM,xlab = "Theoretical quantiles",
+  ylab = "Observed quantiles")
+title(
+  main = "Q-Q plot of Mahalanobis distance"
+  )
+abline(0,1)
+```
+From the above plot, we see that the Mahalanobis distance seems to be $\chi^2$ distributed, apart from the fact that the right tail of the empirical distribution seems to be a little heavier than expected. However, we can still infer that our data are distributed as a multivariate normal distribution. For the rest of our analysis we consider this distibution as Gaussian distibution.
+
+We then display the results of the factor analysis, for now without using any rotation since we will introduce it later on. In  particular rotation will affect  the distribution of the proportion of the total sample variance explained by each factor.
+```{r , echo=TRUE}
+ml5 <- factanal(covmat=R, factors=5,rotation="none")
+ml6 <- factanal(covmat=R, factors=6,rotation="none")
+cat("Result with 5 factors (ml5):\n")
+ml5
+cat("Result with 6 factors (ml5):\n")
+ml6
+```
+
+
+```{r , echo=TRUE}
+L5 <- ml5$loadings
+L6 <- ml6$loadings
+```
+Since the proportion of total sample variance caused by a certain factor is defined as $$\frac{\sum_{j=1}^p\hat{\ell}_{jk}}{\text{trace}(\mathbf{S})}$$ where $\hat{\ell}_{jk}$ is an entry of the $\hat{\mathbf{L}}$ matrix containing the estimation of the loadings, we can obtain the contribution to each factor by the sum of the squared loadings (whose result coincides with the corresponding output of the factor analysis command).
+ 
+```{r , echo=TRUE}
+cat("The variance explained by each factor when m=5 is:\n")
+round(colSums(L5^2)/tr(R), 3)
+cat("The variance explained by each factor when m=6 is:\n")
+round(colSums(L6^2)/tr(R), 3)
+```
+In both cases, we see that the first three factors are the ones that explain the greatest proportion of variance, with factors 4, 5 (and 6) showing little contribution in explaining the overall variance. In both cases, it slightly exceeds 50%, resulting in a total increase from 50.3% to 52.5%. In particular, we can observe that the proportion of variance explained by the first factor is greater with respect to all the other ones.
+
+
+\textit{List the specific variances, and assess the accuracy of the approximation of the correlation matrix. Compare the results. Which choice of m do you prefer? Why?}
+
+
+We calculate the MLE estimate of communalities as
+$$\hat{h}_j^2=\hat{\ell}^2_{j1}+\ldots+\hat{\ell}^2_{jm}\qquad\text{for }j=1,\ldots,p$$
+```{r commun}
+# Communalities
+h5 <- rowSums(L5^2)
+h6 <- rowSums(L6^2)
+```
+
+We then calculate the matrix of specific variances $\psi_j=1-h_j$. Another possible solution is to use the command $uniquenesses that display the specific variances.
+```{r , echo=TRUE}
+# Specific variances
+psi5 <- 1-h5
+cat("Specific variance for m=5:\n")
+ml5$uniquenesses    
+psi6 <- 1-h6
+cat("Specific variance for m=6:\n")
+ml6$uniquenesses
+```
+
+The specific variances can help evaluate the overall fit of the factor model. Large specific variances may indicate poor model fit and the need for modifications. Conversely, small specific variances may suggest overfitting and the need for simplification. In our case, the presence of many variables with high uniqueness suggests a poor fit of the model to the data. Additionally, only two variables show significantly reduced uniqueness with the introduction of a sixth factor, implying that the six-factor model may not offer substantial improvement over the five-factor model.
+
+
+To choose the number of factors $m$ we can compare the residual matrices
+$$\mathbf{R}-\left(\mathbf{\hat{L}\hat{L}}^T+\mathbf{\hat{\Psi}}\right).$$
+where $\mathbf{\hat{L}}$ is the matrix of estimated loadings and $\mathbf{\hat{\Psi}}$ is the diagonal matrix containing $\hat{\psi}_j=s_{jj}-\sum^m_{k=1}\hat{\ell}_{jk}^2$
+
+```{r , echo=TRUE}
+# Residual matrix
+Res5 <- R-L5%*%t(L5)-diag(ml5$unique)
+cat("Frobenius norm residual matrix m=5: \n")
+sum(Res5^2)
+Res6 <- R-L6%*%t(L6)-diag(ml6$unique)
+cat("Frobenius norm residual matrix m=6: \n")
+sum(Res6^2)
+```
+As we can see, residuals obtained with 6 factors are less than residuals obtained with 5 factors: this meas that the maximum likelihood estimates $\mathbf{\hat{L}}_6$ and $\mathbf{\hat{\Psi}}_6$ reproduce the original $\mathbf{R}$ matrix better than their counterparts $\mathbf{\hat{L}}_5$ and $\mathbf{\hat{\Psi}}_5$. Choosing $m=6$, however, comes at a cost:  
+
+```{r , echo=TRUE}
+(6+1)*p-(5+1)*p
+```
+we would have to estimate 24 new parameters just to obtain a negligible improvement in the proportion of variance explained by the model (+1,7%), thus using a sort of "parsimony" principle $m=5$ seems like a better choice.
+
+## 1.2
+\textit{Give an interpretation to the common factors in the m = 5 solution with varimax rotation.}
+
+We know that loadings are defined up to a rotation of the rows of the matrix $\mathbf{L}$. To ease interpretation, it is often useful to apply a rotation to factor so that each data point loads the most on few factors. We employ the \textit{varimax} rotation, which seek the rotated loadings $\hat{\mathbf{L}}^*=\hat{\mathbf{L}}\mathbf{T}$ that maximize the variance of the squared loadings
+for each factor, for $\mathbf{T}$ that maximizes $$V=\sum_{k=1}^{m}\left[\frac{1}{p}\sum_{j=1}^p(\tilde{\ell}^{*}_{jk})^4-\left(\frac{1}{p}\sum_{j=1}^p(\tilde{\ell}^{*}_{jk})^2\right)^2\right]$$ where $\tilde{\ell}^{*}_{jk}=\frac{\hat{\ell}^{*}_{jk}}{\hat{h}_j^{1/2}}$ are the rotated and scaled loadings of the $k$-th factor.
+```{r}
+ml5varimax <- factanal(covmat=R, factors=5,rotation="varimax")
+L5=ml5varimax$loadings
+L5
+```
+As a general rule we establish a threshold of 0.45 to detect the most relevant (i.e. which have the heaviest loadings) variables for each factor. This rule seems reasonable for explain the facor analysis. We point that this rule is arbitrary and for this reason we sort the factor loading in decreasing order so that our output will present the variables in order of "importance".
+We start with the first factor: 
+```{r , echo=TRUE}
+sort(L5[,1],T)
+names(which(sort(L5[,1],T)>0.45))
+```
+Here:
+\begin{itemize}
+\item $V9$ is the "word meaning" variable.
+\item $V7$ is the "sentence completion" variable;
+\item $V6$ is the "paragraph comprehension" variable;
+\item $V5$ is the "general information" variable;
+\item $V8$ is the "word classification" variable;
+\end{itemize}
+It seems intuitive to name "linguistic abilities" a factor which is heavily loading on such variables.
+It is worth noting that these variables correspond to the most evident group that was pointed out from the correlation plot in section 1.1.
+
+For the second factor we have:
+```{r}
+sort(L5[,2],T)
+names(which(sort(L5[,2],T)>0.45))
+```
+Here:
+\begin{itemize}
+\item $V1$ is the "visual perception" variable;
+\item $V3$ is the "paper form board" variable;
+\item $V23$ is the "series completion" variable;
+\item $V4$ is the "flags" variable;
+\item $V20$ is the "deduction" variable.
+\end{itemize}
+Here the factor is more tricky to interpret: we could call this "spatial-logical abstraction", given that the tests involve a mix of pattern recognition and abstraction skills. It is also worth noting that the two variables that concur the most to the factor are related to the visual range. We may also consider incorporating $V2$ since it aligns closely with our predetermined theshold without altering the interpretation.
+
+
+
+
+
+
+
+We examine the third factor:
+
+```{r}
+sort(L5[,3],T)
+names(which(sort(L5[,3],T)>0.45))
+```
+Here:
+\begin{itemize}
+\item $V10$ is the "addition" variable;
+\item $V12$ is the "counting dots" variable;
+\item $V24$ is the "arithmetic problems" variable;
+\item $V13$ is the "straight curved capitals" variable.
+\end{itemize}
+Beside $V13$ (that is the least signficative variable among the group anyway), we could summarize this factor as "numerical abilities" of the students.
+
+The following two factors are more difficult when it comes to assigning a meaning, however their interpretation is not that significative since the amount of variance that they explain is relatively small. 
+```{r}
+sort(L5[,4],T)
+names(which(sort(L5[,4],T)>0.45))
+```
+In the fourth factor:
+\begin{itemize}
+\item $V17$ is the "object-number" variable;
+\item $V14$ is the "word recognition" variable;
+\item $V15$ is the "number recognition" variable;
+\item $V16$ is the "figure recognition" variable;
+\item $v18$ is the "number-figure" variable.
+\end{itemize}
+We could interpret this factor as the "pattern recognition" factor.
+
+We note that the fifth factor explains a proportion of variance significantly smaller than the other four. 
+Indeed, fifth factor has generally low loadings, so we lower our threshold to include more variables and hopefully gain more insight on what it means.
+```{r}
+sort(L5[,5],T)
+names(which(sort(L5[,5],T)>0.4))# V11 code, V13 straight-curved capitals
+```
+Here:
+\begin{itemize}
+\item $V13$ is the "straight-curved capitals" variable; 
+\item $V11$ is the "code" variable.
+\end{itemize}
+It is hard to assign a meaning to this factor. Maybe we could interpret it as some kind of logical reasoning relative to the field of written production. This might be attributed to the observed variance, which is merely 0.026. Consequently, this could indicate that the fifth factor lacks a clear significance as it appears to be inconsequential.
+
+## 1.3
+
+\textit{Make a scatterplot of the first two factor scores for the m = 5 solution obtained by the regression
+method. Is their correlation equal to zero? Should we expect so? Comment.}
+We start plotting a scatterplot
+```{r}
+fareg <- factanal(X,factors=5,scores="regression",rotation = "varimax")
+plot(fareg$scores[,1], fareg$scores[,2], 
+     xlab = "Factor 1", ylab = "Factor 2",
+     main = "Scatter Plot of Factor 1 vs Factor 2")
+```
+No clear pattern is observed, and for deriving a quantitative indicator, we estimate the factor scores using the regression method by specifying scores="regression" with the ML method.
+```{r}
+cor(fareg$scores[,1],fareg$scores[,2])
+```
+Computing the correlation, we observe that it is almost equal to zero.
+
+We create also a scatterplot of the first two factor scores with the 95% ellipse.
+```{r , echo=TRUE, fig.align = "center", out.width = "80%", fig.asp = 0.75}
+F1 <- (fareg$scores)[,1]
+F2 <- (fareg$scores)[,2]
+r_fareg=cov(fareg$scores[,1:2])
+barx_fareg=colMeans(fareg$scores[,1:2])
+eigen_fareg=eigen(r_fareg,symmetric = T)
+plot(ellipse(x = r_fareg, centre = barx_fareg, level = 0.95),
+	col = "blue", type = "l", asp = 1,
+	xlab = "Factor 1", ylab = "Factor 2")
+points(F1, F2, pch = 16,  cex = 0.75)
+b = -eigen_fareg$vectors[1, 2] / eigen_fareg$vectors[2, 2]
+a = -b * barx_fareg[1] + barx_fareg[2]
+abline(a, b, lwd = 1, lty = 2)
+d = -eigen_fareg$vectors[1, 1] / eigen_fareg$vectors[2, 1]
+c = -d * barx_fareg[1] + barx_fareg[2]
+abline(c, d, lwd = 1, lty = 2)
+abline(a=0,b=1,lty=3,lwd=3)
+abline(a=0,b=1,lty=3,lwd=3,col = "red")
+
+```
+The correlation is low as expected, since the factor analyisis performed with maximum likelihood assumes the non correlation of the factors. Data points assume a wide elliptical shape, as expected, and the fact that the 95% normal ellipsoid is almost a circle further confirms that the first and the second factors are uncorrelated.
+
+## 1.4
+
+\textit{Obtain the maximum likelihood solution with varimax rotation for m = 5 factors by using the Pasteur
+students data. Is the interpretation to the common factors similar to that of Grant–White students?}
+We now compute the maximum likelihood solution with varimax rotation for $m=5$ factors by using the Pasteur students data. First of all we check if normality holds in the reduced dataset Pasteur since we are going to apply again Factor analysis on this dataset.
+```{r,out.width="70%"}
+pasteur <- psych[which(psych$group=="PASTEUR"),4:27]
+Y <- scale(pasteur)
+Ry <- cor(Y)
+dM2 <- mahalanobis(Y,colMeans(Y),cov(Y))
+qqplot(qchisq(ppoints(dM2),df=p),dM,xlab = "Theoretical quantiles",
+  ylab = "Observed quantiles")
+title(
+  main = "Q-Q plot for Pasteur students"
+  )
+abline(0,1)
+```
+The qq-plot of the Mahalanobis distance is paractically identical to the previous one, obtained with the Grant-White data, so once again we assume the normality of the data to hold. We perform the data analysis using the varimax rotation
+```{r , echo=TRUE}
+ml5y <- factanal(covmat=Ry, factors=5,rotation="varimax")
+L5y <- ml5y$loadings
+L5y
+```
+We create a series of plots to examine how these new factors behave with respect to the Grant ones.
+```{r , echo=TRUE, fig.align = "center", out.width = "95%", fig.asp = 0.75}
+par(mfrow=c(2,3))
+for (i in 1:5) {
+  plot(L5[,i],L5y[,i],
+       ylab = paste("Pasteur factor",i),
+       xlab = paste("Grant-White factor",i))
+  lab <- round(cor(L5[,i],L5y[,i]),2)
+  text(x=0.5,y=-0.1,labels=paste("corr",lab,sep=" "),cex=0.7)
+}
+
+ml5y
+```
+We see that there is a substantial correlation between the first and second factor for both dataset, while the other three seems pretty different. Indeed the interpretation of the first factor remains practically unchanged. 
+
+```{r , echo=TRUE}
+names(which(sort(L5y[,1],T)>0.45))
+```
+\begin{itemize}
+\item $V7$ is the "sentence completion" variable;
+\item $V5$ is the "general information" variable;
+\item $V6$ is the "paragraph comprehension" variable;
+\item $V9$ is the "word meaning" variable;
+\item $V8$ is the "word classification" variable;
+\item $V22$ is the "problem reasoning" variable.
+\end{itemize}
+We can see how the first Pasteur factor includes the same variables of the Grant factor analysis. The difference lies in the presence of the variable $V22$ (which is, however, the least important among the six variables selected) and in the ordering of variables, whose importance is now different. We can conclude that the interpretation of the factor remains the same. 
+
+About the second factor:
+```{r}
+names(which(sort(L5y[,2],T)>0.45))
+```
+Here:
+\begin{itemize}
+\item $V4$ is the "flags" variable;
+\item $V23$ is the "series completion" variable;
+\item $V1$ is the "visual perception" variable;
+\item $V3$ is the "paper form board" variable;
+\item $V2$ is the "cube" variable;
+\item $V20$ is the "deduction" variable.
+\item $V22$ is the "problem reasoning" variable.
+\end{itemize}
+We see a similar situation to the first factor, with a different ordering and more variables included with respect to the Grant data. We can conclude that here, as well, the interpretation can be similar.
+
+About the third one:
+
+```{r}
+names(which(sort(L5y[,3],T)>0.45))
+```
+Here:
+\begin{itemize}
+\item $V14$ is the "word recognition" variable;
+\item $V15$ is the "number recognition" variable;
+\item $V17$ is the "object-number" variable;
+\item $V16$ is the "figure recognition" variable;
+\item $V18$ is the "number-figure" variable.
+\end{itemize}
+
+This factor is radically different from the third factor of the Grant data, instead it loads on exactly the same variables of the fourth factor in the previous dataset. Similarly the fourth factor for the Pasteur dataset loads mainly on:
+
+```{r}
+names(which(sort(L5y[,4],T)>0.45))
+```
+\begin{itemize}
+\item $V11$ is the "code" variable;
+\item $V13$ is the "straight-curved capitals" variable;
+\item $V12$ is the "counting dots" variable;
+\item $V10$ is the "addition" variable.
+\end{itemize}
+
+Thus is very similar to the factor that was the third in the previous model.
+
+For the 5th factor the main variables are:
+```{r}
+names(which(sort(L5y[,5],T)>0.45))
+```
+where:
+\begin{itemize}
+\item $V10$ is the "addition" variable;
+\item $V24$ is the "arithmetic problems" variable.
+\end{itemize}
+
+The fifth factor in the Pasteur model shows no resemblance to the fifth factor in the Grant-White model but this fact has limited relevance, considering the little portion of variance explained by the factor in both models.
+
+In summary, the two models have basically the same factors but the third and fourth one are inverted in the order because one explains more variance than the other in one model and viceversa. Indeed we can see that the correlation pattern which was evident for the first two factors, still appears between factor 3 and 4 and 4 and 3:
+```{r,out.width="70%"}
+par(mfrow=c(1,2))
+plot(L5[,4],L5y[,3],
+       ylab = paste("Pasteur factor",4),
+       xlab = paste("Grant-White factor",3))
+lab <- round(cor(L5[,3],L5y[,4]),2)
+text(x=0.5,y=-0.1,labels=paste("corr",lab,sep=" "),cex=0.7)
+plot(L5[,3],L5y[,4],
+       ylab = paste("Pasteur factor",3),
+       xlab = paste("Grant-White factor",4))
+lab <- round(cor(L5[,4],L5y[,3]),2)
+text(x=0.5,y=-0.1,labels=paste("corr",lab,sep=" "),cex=0.7)
+```
+We see that the two fifth factors are moderately correlated. 
+
+Overall we can deem the interpretation of the factors as very similar, which means that the solution is stable. Among the differences, we have the slightly different proportion of variance explained by the factors (respectively 0.152   0.123   0.102   0.099   0.026 and 0.164   0.117   0.084   0.070   0.050).
+\newpage
+
+
+# Exercise 2
+Let us consider the dataset $pendigits$ which was created by collecting 250 samples from 44 writers. These writers
+were asked to write 250 digits in random order inside boxes of 500 by 500 tablet pixel resolution.
+The raw data on each of n = 10992 handwritten digits consisted of a sequence, $(x_t, y_t)$, $t = 1$,
+$2, ..., T$ , of tablet coordinates of the pen at fixed time intervals of 100 milliseconds, where
+$x_t$ and $y_t$ were integers in the range 0-500. These data were then normalized to make the
+representations invariant to translation and scale distortions. The new coordinates were such
+that the coordinate that had the maximum range varied between 0 and 100. Usually $x_t$ stays
+in this range, because most integers are taller than they are wide. Finally, from the normalized
+trajectory of each handwritten digit, 8 regularly spaced measurements, $(x_t, y_t)$, were chosen by
+spatial resampling, which gave a total of p = 16 variables. The data includes a class attribute,
+column digit, coded $0, 1, . . . , 9$, about the actual digit.
+```{r}
+#setwd("C:/Users/fravi/Desktop/Universita/Laurea Magistrale/Anno 1/2° semestre/Multivariate statistical analysis/PS2")
+pendigits<-read.table("data/pendigits.txt", sep=",",head=F)
+names(pendigits)<-c(paste0(rep(c("x","y"),8),rep(1:8,each=2)),"digit")
+n <- dim(pendigits)[1]
+p <- dim(pendigits)[2]-1
+head(pendigits)
+```
+
+\section{2.1}
+\textit{Use linear discriminant analysis (LDA). Display the first two LD variables in a scatterplot, color
+coding the observations according to the digit class (use lookup color vector below). How well do they
+discriminate the 10 digits? Refer also to theory.}
+
+```{r}
+lookup<-c("darkgreen", "brown", "lightblue", "magenta", "purple",
+          "blue", "red", "lightgreen", "orange", "cyan")
+```
+
+In Linear Discriminant Analysis (LDA) the goal is to separate observations into classes and assign new observations accordingly. 
+Let us now define, $\mathcal{G} = \{0,1,..,9\}$, 10 population classes, each corresponding to digits from 0 to 9. The classification of new observations involves maximizing the posterior probability $P(\mathcal{G}_k|X = x)$, conditioned on observing $x$, which can be expressed using Bayes’ rule. LDA arises in the special case when we assume that the classes follow a multivariate Gaussians with a common covariance matrix $\Sigma$. So first we check the gaussianity
+```{r }
+oneDigits <- split(pendigits[, 1:16], pendigits[, 17])
+par(mfrow = c(3, 3), mar = c(2, 4, 3, 1))
+for (i in 1:10) {
+  if (i != 5){
+  d <- mahalanobis( oneDigits[[i]], center = colMeans( oneDigits[[i]]), 
+                    cov = cov( oneDigits[[i]]))
+  plot(qchisq(ppoints(d), df = ncol( oneDigits[[i]])), sort(d), pch = 16,
+       xlab = "Theoretical Quantiles", ylab = "Sample Quantiles", 
+       main = paste0("Number ", (i - 1)),col=lookup[i])
+  abline(0, 1, col = "blue",lw = 2)
+}
+}
+```
+The Mahalanobis distance relative to each class does not seem to be $\chi^2$ distributed because each time the qq-plot shows an heavier tail for the empirical distribution, which suggests that the assumption of normality for the classes is not very strong. Notice that we have excluded the class relative to digit 4 since its last variable ($y_8$) is constantly 0, therefore, it is certainly not Gaussian.\
+
+We also check the other assumption of LDA relative to the homoschedasticity of the classes, using Bartlett's test.
+
+```{r }
+#names(train)
+#c(x1,y1,x2,y2,x3,y3,x4,y4,x5,y5,x6,y6,x7,y7,x8,y8)
+for (i in 1:16) {
+  res <- bartlett.test(x1~digit,data=pendigits)
+  if (res$p.value<0.05) {
+    print(paste("The variance of",names(pendigits)[i],"is different between the 10 groups",
+                "p-value of Bartlett's test: ",res$p.value,sep=" "))
+  }
+}
+```
+For each variable, we observe that the Bartlett test rejects the hypothesis of equal variance between groups.
+
+Even though the distributional assumptions are not met, the Linear Discriminant Analysis (LDA) algorithm remains relevant. Although adhering to these assumptions yields optimal performance, LDA still offers valuable insights and efficient classification. LDA iteratively discerns discriminant features from the ten classes, aiming to maximize inter-class separation while minimizing intra-class variance.
+
+
+To assess our model, we divide the dataset in a training set, to train the model, and a test set, to evaluate its performance. In particular, we've chosen to sample a train set from with size equal to 80% of the size of the original dataset:
+
+```{r}
+nt <- round(n*0.8)
+ind <- sample(1:n,nt)
+train <- pendigits[ind,]
+test <- pendigits[-ind,]
+col.index <- lookup[(train$digit)+1]
+```
+Let us now verify that the distribution of the classes is uniform across the dataset by examining an histogram. This will ensure that all classes are equaly represented in the training set.
+
+```{r, fig.height=3}
+barplot(table(train$digit)/nt, main = "Distribution of Train", 
+        xlab = "Digit", ylab = "Relative frequency",col=3)
+barplot(table(pendigits$digit)/n, main = "Distribution of Pendigits", 
+        xlab = "Digit", ylab = "Relative frequency",col=3)
+```
+We can observe that the distribution is almost the same, so our train set well represents the original data. We can also observe that the a priori distribution of the 10 classes is (almost) uniform.
+
+Let's implement the LDA:
+```{r }
+lda.fit<-lda(digit~.,data=train)
+lda.fit
+```
+```{r}
+lda.fit$prior
+```
+Note that, by default, the priors are the proportions of occurrences of each class in the data
+set, and they are all pretty similar since as observed the distribution is almost uniform.
+
+We are after the discriminant directions, the
+coefficient vectors that express the discriminant variables in terms of the original variables. The coefficients
+are arranged into a 16 × 9 matrix referred to as Coefficients of linear discriminants:
+```{r}
+lda.fit$scaling
+```
+We can observe that both LD1 and LD2 load heavily on the $y$-axis elements of the dataset, with a notable emphasis on $y_8$. This is reasonable because digit doesn't shares their endings, while the central parts are generally similar between most digits, as they typically cross the center of the paper. Moreover, the $y$-axis elements are more influential than the $x$-axis ones, as they provide greater variation in the height of the digits, thus potentially serving as a more discriminant factors.
+
+We start using the Fisher derivation: to reproduce the discriminant variables, we first compute the matrix containing the values of the discriminants variables. This is achieved via the matrix product:
+```{r }
+A <- lda.fit$scaling
+Z <- as.matrix(train[,1:p])%*%A
+head(Z)
+```
+The discriminant variables are ordered by their discriminatory power, making a plot of the first two discriminant variables is informative of the degree of discrimination among classes.
+```{r}
+labels <- c("0","1","2","3","4","5","6","7","8","9")
+centroids <- aggregate(Z[, 1:2], by = list(train$digit), FUN = mean)
+centroids <- centroids[, -1]
+covariances <- list()
+for (i in 1:10) {
+  covariances[[i]] <- cov(Z[train[, 17] == (i - 1), 1:2])
+}
+plot(Z[, 2] ~ Z[, 1], pch = 16, cex=0.3, col = col.index,
+     xlab = "LD1", ylab = "LD2", main = "Fisher's derivation of LDA")
+points(centroids[, 1], centroids[, 2], cex = 1.5, col = lookup, pch = 16)
+legend("topright", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.8)
+text(centroids[, 1], centroids[, 2], labels = 0:9, pos = 1, cex = 0.8)
+for (i in 1:10) {
+  lines(ellipse(x = covariances[[i]][1:2, 1:2], centre = c(t(centroids[i, 1:2])),
+                level = 0.95), col = lookup[i])
+}
+```
+We can now achieve the same using the command predict.lda(), which centers the linear discriminant variables so that the weighted mean (weighted by prior) of the group centroids is at the origin. 
+```{r }
+labels <- c("0","1","2","3","4","5","6","7","8","9")
+pred = predict(lda.fit)
+centroids = aggregate(pred$x, by = list(train$digit), FUN = mean)
+centroids = centroids[, -1]
+covariances = list()
+for (i in 1:10){
+covariances[[i]] = cov(pred$x[train[, 17] == (i - 1), ])
+}
+
+plot(LD2 ~ LD1, data = pred$x, pch = 16, cex=0.3, col = col.index,
+xlab = "LD1", ylab = "LD2", main = "predict()")
+points(centroids[, 1], centroids[, 2], cex = 1.5, col = lookup, pch = 16)
+
+legend("topright", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.8)
+
+text(centroids[, 1], centroids[, 2], labels = 0:9, pos = 1, cex = 0.8)
+
+for (i in 1:10) {
+  lines(ellipse(x = covariances[[i]][1:2, 1:2], centre = c(t(centroids[i, 1:2])),
+                level = 0.95), col = lookup[i])
+}
+```
+As expected they don't produce the same result.
+```{r}
+head(Z)
+head(pred$x)
+```
+As anticipated, the second plot appears to be more centered around the origin. This alignment is a result of centering the linear discriminants so that the weighted mean, which is essentially the arithmetic mean of the centroids due to nearly equal prior probabilities, coincides with the origin. Consequently, the grand mean vector is also situated at the origin. This adjustment facilitates a simpler interpretation of the decision boundaries. For further ease of interpretation, we utilize the predict() function in our analysis.\
+
+To understand the overlap between different clusters we have added the
+countor plot of a gaussian distribution with means the centroids and covariance
+matrix the sample covariance matrix at level of 0.95, in the plots for each of the 10 classes. 
+We notice that digits 2 and 4 form well-separated clusters, located on the left and top of the plot, respectively. Digit 5 seems to be spread in two parts, while others show varying degrees of spread around their centroids. Overlap is evident between one region of 5 and the group 9 and from the other region of 5 and 8. For this reason, we will expect mis-classifications of 5. Also, 3, 7, and 1 are overlapping. The cluster 0 seems to be well separated from the others but has a partial overlap with 6. It is important to notice that the first two Linear Discriminant directions capture only around 60% of the data variance then it is reasonable to observe not well separated clusters.
+
+\section{2.2}
+\textit{Compute the confusion matrix on the training data. What are the groups more difficult to separate from the others? Comment in view of the answer to point 1.}\
+We computed the confusion matrix
+```{r }
+lda.pred<-predict(lda.fit)
+predicted <- lda.pred$class
+```
+
+```{r }
+conf.mat <- table(predicted=predicted,real=train$digit)
+conf.mat
+```
+and the full rank LDA training error:
+```{r }
+AER <- 1-mean(lda.pred$class==train$digit)
+print(AER)
+```
+The training error rate is approximately 0.12, indicating that on the test set, the classification is accurate nearly 9 times out of 10. In the next image we plotted the data according to the values of the first two linear discriminant variables and color coded them according to their class, in this we we show a comparison of the real and predicted class.
+```{r }
+labels <- c("0","1","2","3","4","5","6","7","8","9")
+par(mfrow=c(1,2))
+col.index.pred <- lookup[as.numeric(predicted)]
+plot(Z[,1],Z[,2],col=col.index,pch=16, cex=0.3, 
+     xlab = "LD1", ylab = "LD2", main = "Real")
+legend(x = "bottomleft", y = "bottom", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.5, horiz = TRUE)
+plot(Z[,1],Z[,2],col=col.index.pred,pch=16, cex=0.3, 
+     xlab = "LD1", ylab = "LD2", main = "Predicted")
+legend(x = "bottomleft", y = "bottom", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.5, horiz = TRUE)
+```
+To determine which group is harder to classify, we consider two parameters: the misclassification rate and the "posterior misclassification probability". While the misclassification rate indicates the proportion of correct predictions among all values, the misclassification probability represents the likelihood that a predicted value actually belongs to the classified set. This distinction is crucial, as it illustrates the potential limitations of a simplistic decision rule. For instance, if tasked with distinguishing between cats and dogs, consistently labeling everything as a dog yields a perfect accuracy in identifying dogs, but this alone is not a realiable information to evaluate the model. Thus, the misclassification rate is the main parameter under which we base our analysis but we can also observe the misclassification probability since it offers additional insights.
+```{r }
+par(mfrow=c(1,1))
+mis.prob <- (rowSums(conf.mat)-diag(conf.mat))/(rowSums(conf.mat))
+cat("Posteriori misspecification probability per class:\n")
+print(sort(round(mis.prob,3), decreasing = F))
+
+```
+
+```{r}
+total_misclassification <- colSums(conf.mat) - diag(conf.mat)
+misclassification_rate <- round(total_misclassification / lda.fit$counts, 4)
+cat("Total misclassifications per class:\n")
+print(total_misclassification)
+cat("\nMisclassification rate per class:\n")
+print(misclassification_rate)
+```
+Digits 1 and 5 exhibit the highest misclassification rates, with approximately one-third of their observations being misclassified. These digits also frequently overlapped with other classes in the scatterplot. In contrast, digits 2, 4, and 6 demonstrate excellent classification results, this was also evident from the previous scatterplot since the corresponding clusters where highly concentrated around their centroids. Additionally, digits 8, 0, 7, and 9 present a misclassification rate of 10%. Particularly, 8, 0, and 7 also have a high probability of being in the corrected class given the fact that they are predicted as 8, 0, and 7.  Digit 9 present a misclassification rate that isn't excessively high. However, the posterior probability reveals that nearly all items inaccurately classified actually fall into the category 9, with the digit 5 being the primary contributor to this misclassification. Therefore, when a digit is classified as 9, it introduces a greater level of uncertainty regarding the precision of our classifications.
+Notably, digit 0 is frequently misclassified as 8. Some digits exhibit a bias in their misclassification direction, such as digit 1 being misclassified as 2 more frequently than then contrary. This discrepancy is explained by the high variance of digit 1, leading to overlaps with digit 2 in the scatterplot. Despite observed misclassifications, the overall training error rate is low at 12,3%  indicating that on the train set, the classification is accurate nearly 9 times out of 10. As expected, there are no misclassifications between the most distant classes such as 2 and 0.
+
+\section{2.3}
+\textit{Use leave-one-out cross validation (CV). Compute the confusion matrix and the corresponding CV
+error. Is it larger than the training error? Why so?}\
+In leave-one-out cross-validation, the model is trained iteratively while excluding one observation at a time, reserving it solely for testing purposes. This method allows us to assess the model's performance on new data by simulating its behavior with unseen instances. As we begin the leave-one-out cross-validation process, we compute the subsequent confusion matrix.
+```{r }
+lda.fitCV<-lda(digit~.,data=pendigits,CV=T)
+conf.matCV<-table(predicted=lda.fitCV$class,true=pendigits$digit)
+conf.matCV
+```
+
+```{r}
+ERCV<-1-mean(lda.fitCV$class==pendigits$digit)
+cat("The training error is: ", AER, "\n")
+cat("The CV error is: ", ERCV, "\n")
+```
+
+
+Now, we calculate the error in the test dataset (previously created).
+```{r }
+lda.pred.test<-predict(lda.fit,test)
+predicted.test <- lda.pred.test$class
+conf.mat.test <- table(predicted=predicted.test,real=test$digit)
+AER.test <- mean(lda.pred.test$class!=test$digit)
+cat("The test error is: ", AER.test, "\n")
+```
+
+The training error naturally tends to be lower than both the test error and the CV error. This depends on the fact that the classifier is being assessed on the same data it was trained on, potentially leading to an underestimation of the true error rate on unseen data. Therefore the test error, calculated on data on which the model was not trained, prevents the risk of underestimation, and is a more realistic indicator of the accuracy of the model.
+
+Leave-one-out cross-validation also provides a more realistic evaluation. Moreover, with this method, the model is trained on all but one data point and then tested on the omitted point, thus this approach minimizes the "loss" of data in the training procedure since only one element is excluded. A small discrepancy between the CV error and the training error can be interpreted positively, suggesting that the model avoids overfitting the training data.
+
+The slight difference between the CV error and the test error could be attributed to the fact that more data are used for training the model in cross-validation than for assessing the error. However, the closeness of the three results indicates a good fit of the model to our data.
+\section{2.4}
+\textit{Compute the 44-fold cross validation error for each reduced-rank LDA classifier, including full-rank
+LDA, by using the partition of the observations provided by the variable groupCV below. Plot the error
+curve against the number of discriminant variables. What classifier do you prefer? Comment.}
+
+A 44-fold cross-validation procedure is used to evaluate a model's performance in classifying handwritten digits. The process involves dividing the data into 44 groups. We train a model 44 times; each time we use as training sets 43 groups, and then evaluate the model on the remaining gropu which serves as test set. A 44-fold cross-validation could potentially effectively assess our model's predictive capability if observations were grouped by "author," given there are 44 different authors (but we don't have this information). We repeat this cross-validation procedure using reduced-rank linear discriminant analysis, which allows nearest centroid classification in a subspace of dimension $K<9$ by utilizing only the first $K$ discriminant directions for prediction. While performing the 44-fold cross-validation, the final fold does contain eight data points less compared to the others. Theoretically, this difference should be addressed to ensure a more accurate error estimation. However, we consider this a negligible issue in this case. With only eight observations out of a total of approximately 250, the size difference translates to a fraction around 0.032. This suggests minimal impact on the overall error estimate.
+```{r }
+groupCV<-rep(1:44, each=250)
+groupCV<-groupCV[1:length(pendigits$digit)]
+ERCVk.vec <- rep(0,9)
+ERCVk.vec.train <- rep(0,9)
+for (k in 1:9) {
+  ERCV.vec <- rep(0,44)
+  ERCV.vec.train <- rep(0,44)
+  for (i in 1:44) {
+    test.i <- pendigits[groupCV==i,]
+    train.i <- pendigits[!(groupCV==i),]
+    lda.fit.i <- lda(digit~.,data=train.i)
+    predict.i <- predict(lda.fit.i,test.i,dimen=k)
+    predict.i.train <- predict(lda.fit.i,dimen=k)
+    ERCV.i <- mean(predict.i$class!=test.i$digit)
+    ERCV.vec[i]=ERCV.i
+    ERCV.i.train <- mean(predict.i.train$class!=train.i$digit)
+    ERCV.vec.train[i]=ERCV.i.train
+  }
+  ERCV.k <- mean(ERCV.vec)
+  ERCVk.vec[k]=ERCV.k
+  ERCV.k.train <- mean(ERCV.vec.train)
+  ERCVk.vec.train[k]=ERCV.k.train
+}
+```
+
+```{r }
+plot(ERCVk.vec, xlab = "Discriminant variables", ylab = "Error rate", type = "o", 
+     col = "orange", pch = 16, ylim = range(ERCVk.vec, ERCVk.vec.train))
+points(ERCVk.vec.train, type = "o", col = "lightblue", pch = 16)
+legend("topright", legend = c("CV Error", "Training Error"),
+       col = c("orange", "lightblue"), pch = 16, lty = 1)
+```
+
+```{r}
+table <- matrix(c(ERCVk.vec, ERCVk.vec.train), ncol = 9)
+rownames(table) <- c("CV error", "Training Error")
+colnames(table) <- 1:9
+print(table)
+```
+
+As expected, the CV error remains slightly higher than the training error. This discrepancy arises because cross-validation offers a more reliable estimate of the model's generalization performance, assessing its efficacy on unseen data.
+
+Additionally, we note a decline in the CV error as the number of discriminant variables increases. This trend implies that incorporating more variables  increases the model's capacity to distinguish between classes, then the best choice is to incorporate all 9 discriminant variable.
+
+
+
+\section{2.5}
+\textit{(Optional) Find a classification rule that improves on the CV error rate estimates found before. Feel free to use any classification method, even one not covered in class.}\
+In point 1 we saw that the hypothesis on the omoschedasticity of the groups was not verified, so to get an improvement in the classification, the first idea  that comes to mind is to use a quadratic discriminant analysis, which does not require the covariance matrices of the groups to be equal.\
+
+However we have to notice that QDA requires the covariance matrices to be invertible, but as we already observed, the observations in group 4 have one variable ($y_8$) which is constantly null, hence the covariance matrix is not full rank and cannot be inverted.\
+```{r}
+head(train[train$digit==4,1:16])
+cov(train[train$digit==4,1:16])
+```
+One possible solution to this problem could be using principal component analysis on the data to provide a reduction of the dimension which should eliminate collinearity problems. As we already discussed in the previous problem set, we choose 5 components, and redefine the train and test sets on the data with reduced dimensionality.
+```{r}
+PCA <- prcomp(pendigits[1:16],scale=T)
+summary(PCA)
+reduced_train <- (PCA$x)[ind,]
+reduced_train <- as.data.frame(reduced_train[,1:5])
+reduced_train$digit <- train$digit
+reduced_test <- (PCA$x)[-ind,]
+reduced_test <- as.data.frame(reduced_test[,1:5])
+reduced_test$digit <- test$digit
+```
+Now we can implement again QDA and see how the new model classifies the data in the test set.
+```{r}
+qda.fit <- qda(digit~.,data=reduced_train)
+qda.pred.test<-predict(qda.fit,reduced_test)
+qda.predicted.test <- qda.pred.test$class
+QDA.ER <- mean(qda.pred.test$class!=test$digit)
+QDA.ER
+```
+We get a slight improvement in the classification error.
+
+Next we plot the data (using the first two principal components instead of the linear discriminant variables) comparing the real and predicted.
+```{r}
+par(mfrow=c(1,2))
+col.index <- lookup[(reduced_test$digit)+1]
+col.index.pred <- lookup[as.numeric(qda.predicted.test)]
+plot(reduced_test[,1],reduced_test[,2],col=col.index,pch=16,cex = 0.5,xlab="PC1",ylab="PC2",main="Real")
+legend(x = "topleft", y = "bottom", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.5, horiz = TRUE)
+plot(reduced_test[,1],reduced_test[,2],col=col.index.pred,pch=16,cex = 0.5,xlab="PC1",ylab="PC2",main="Predicted")
+legend(x = "topleft", y = "bottom", legend = labels, pch = 21, pt.bg = lookup,  
+       title = "Clusters", cex = 0.5, horiz = TRUE)
+par(mfrow=c(1,1))
+```
+As an alternative approach we can implement the random forest classification. Here is how it works in summary: 
+\begin{itemize}
+\item the dataset is split in random subset with replacement (meaning that we are not doing a partition);
+\item a random tree is built for each subset using a random selection of predictor variables (in this way the trees are less correlated), which determines at each node of the tree the splitting of the original subset of data.
+\item the splittings are made in order to obtain "purer" nodes, that is nodes in which the majority of observations belong to the same class. There are many possible criteria, one of the most intuitive is to choose the split that minimizes the Gini impurity index, which is defined by
+$$G(t) = 1 - \sum_{i=1}^{C} p(i|t)^2$$
+where $p(i|t)$ is the relative frequency of the $i$-th class i n the node $t$;
+\item the predictions of all trees are aggregated by a majority vote.
+\end{itemize}
+The greatest advantage of a random forest is that it avoids overfitting since many decision trees are used simultaneously.
+```{r}
+train$digit <- factor(train$digit)
+rf <- randomForest(digit ~ ., data = train, type="classification")
+rf_pred <- predict(rf, test)
+RFER <- mean(rf_pred!=test$digit)
+RFER
+confrandom<- table(predicted=rf_pred,real=test$digit)
+confrandom
+```
+As we see, the error rate decreases significantly, as the model produces only 1 mis-classification every 100. In particular, the misspecification rate, decreases towards zero

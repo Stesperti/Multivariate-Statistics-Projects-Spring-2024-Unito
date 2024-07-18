@@ -1,0 +1,950 @@
+---
+title: "Multivariate Statistical Analysis Problem set 1"
+author: "Lorenzo Sala 943481 - Stefano Sperti 947676 - Francesco Virgili 1101739 "
+date: "Università di Torino"
+output: pdf_document
+---
+
+
+```{r echo = T, results = 'hide',message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.align="center")
+getwd()
+library(moments)
+library(ellipse)
+library(corrplot)
+library(scatterplot3d)
+library(lemon)
+library(MASS)
+library(knitr)
+library(formatR)
+```
+
+## Esercizio 1
+
+Consider the *air pollution* data from which the variable *SO2* has been removed. As a preliminary step we select the variables of interest and change the variable “Neg.Temp” into “Temp” which has inverted sign and it is easier to interpret. It consists of 6 variables and 41 observations, each corresponding to a different city.
+```{r, render = lemon_print}
+#setwd("C:/Users/fravi/Desktop/Universita/Laurea Magistrale/Anno 1/2° semestre/Multivariate statistical analysis/PS1")
+usair<-read.table("data/usair.txt",header=TRUE)
+usair <- usair[, !(names(usair) == "SO2")]
+usair$Neg.Temp <- -usair$Neg.Temp
+names(usair)[names(usair)=="Neg.Temp"] <- "Temp"
+head(usair)
+```
+
+
+
+
+
+\section{1.1}
+The sample correlation matrix can be obtained using the *cov()* function, which calculates the covariance matrix. However, for a clearer visualization, we've utilized the *corrplot* package.
+```{r,  fig.height=4}
+n <- dim(usair)[1]#obs
+p <- dim(usair)[2]#var
+R = round(cor(usair), 3)
+corrplot(R, type = "upper", method = "color", tl.col = "black",
+addCoef.col = "black", number.cex = 0.75, tl.cex = 0.8, cl.cex = 0.8)
+```
+For improving clarity we sort the absolute values of the correlation matrix in descending order.
+```{r, echo=F}
+R[!lower.tri(R)] <- NA
+sort(abs(R),decreasing = T,na.last = NA)
+```
+
+The correlation matrix shows that most of the couples of variables have low correlations; the most evident
+exception is the correlation between the size of the population (Pop) of the city and the number of
+manufacturing enterprises with more than 20 employees (Manuf), which is very close to 1: 
+```{r, echo=F, fig.height=3.5}
+plot(Manuf~Pop,data=usair,pch=16,xlab="Population size",ylab="N of manufacturing enterprieses",main="Scatter plot Pop vs. Manuf")
+```
+
+For the variables Population and Manufactory, the high correlation value 
+($\rho = 0.96$) is intuitive, as it suggests that cities with larger populations 
+tend to have more operating manufactory industries. This correlation aligns with the 
+expectation that higher population densities correspond to greater manufactory 
+activity.
+
+We also explore scatter plots for other pairs of variables with significant 
+correlations ($\rho > 0.4$). These include the relationship between the average 
+annual number of days with precipitation and both the annual average inches 
+of precipitation, and the average annual temperatures.
+
+It is logical that as the number of days with precipitation increases, so 
+does the amount of precipitation recorded annually, while temperatures tend 
+to be lower. Indeed the variables Temperature and Days ($\rho = -0.430$) and Precipitation and Days  ($\rho = 0.496$) exhibit moderate correlations, indicating that an 
+increase in the average number of days with precipitation per year is 
+associated with lower temperatures and higher precipitation levels. This 
+relationship is consistent with expectations in meteorology, as cities 
+experiencing colder climates tend to have more frequent and intense 
+precipitation events.
+
+The remaining correlation coefficients have relatively low absolute values, 
+suggesting weak or negligible relationships between the corresponding 
+variables.
+
+
+```{r, echo=F, fig.height=3.5}
+par(mfrow=c(1,2))
+plot(Precip~Days,data=usair,pch=16,xlab="Days with precipitations (year avg.)",ylab="Inches of precipitations (year avg.)")
+abline(lm(Precip~Days,data=usair),col=2)
+plot(Temp~Days,data=usair,pch=16,xlab="Days with precipitations (year avg.)",ylab="Temperature F (year avg.)")
+abline(lm(Temp~Days,data=usair),col=2)
+```
+
+
+
+
+\section{1.2}
+We begin our analysis by examining outliers. Initially, we inspect the boxplots of each variable to identify potential univariate outliers. It's important to note that we cannot display the boxplots side by side due to the considerable differences in the scales of the variables.
+
+```{r echo=F,fig.align="center"}
+num_rows <- dim(usair)[1]
+num_cols <- dim(usair)[2]
+
+# Set up the layout and margins for multiple boxplots
+par(mfrow=c(2,3), mar=c(1.5,2,1.5,1.5))
+
+# Loop through each column of the usairset to create boxplots
+for (col_index in 1:num_cols) {
+    # Create a boxplot for the current column
+    box_usair <- usair[, col_index]
+    boxplot_result <- boxplot(box_usair, main=names(usair)[col_index], outpch=21, outcex=1,outbg="red")
+    
+      # If there are outliers in the boxplot, label them
+    if (length(boxplot_result$out) > 0) {
+        text(1, boxplot_result$out, labels=as.character(match(boxplot_result$out, box_usair)),
+             pos=4, cex=0.75, offset=1)
+    }
+}
+```
+
+For each variable, we take into account only the most extreme outliers checking which are the data that differ from the median of more than the interquantile distance multiplied by 2.5 (in R, the outliers pointed out by the boxplots are points that differ from the median more than 1.5 times the interquantile distance, here the multiplying constant is modified, in order to consider at most the two or three most significant outliers).
+
+```{r,echo=F}
+# Outliers identified by boxplots
+outliers_wind <- which(abs(usair[,1]) > abs(median(usair[,1])) + IQR(usair[,1]) * 2.5 | abs(usair[,1]) < abs(median(usair[,1])) - IQR(usair[,1]) * 2.5)
+outliers_temp <- which(abs(usair[,2]) > abs(median(usair[,2])) + IQR(usair[,2]) * 2.5 | abs(usair[,2]) < abs(median(usair[,2])) - IQR(usair[,2]) * 2.5)
+outliers_manuf <- which(abs(usair[,3]) > abs(median(usair[,3])) + IQR(usair[,3]) * 2.5 | abs(usair[,3]) < abs(median(usair[,3])) - IQR(usair[,3]) * 2.5)
+outliers_pop <- which(abs(usair[,4]) > abs(median(usair[,4])) + IQR(usair[,4]) * 2.5 | abs(usair[,4]) < abs(median(usair[,4])) - IQR(usair[,4]) * 2.5)
+outliers_precip <- which(abs(usair[,5]) > abs(median(usair[,5])) + IQR(usair[,5]) * 2.5 | abs(usair[,5]) < abs(median(usair[,5])) - IQR(usair[,5]) * 2.5)
+outliers_days <- which(abs(usair[,6]) > abs(median(usair[,6])) + IQR(usair[,6]) * 2.5 | abs(usair[,6]) < abs(median(usair[,6])) - IQR(usair[,6]) * 2.5)
+
+all_outliers <- c(outliers_wind, outliers_temp, outliers_manuf, outliers_pop, outliers_precip, outliers_days)
+
+outliers <- unique(all_outliers)
+
+# Displaying both indices and row names of outliers
+print("Indices of outliers identified using the enlarged whiskers:")
+print(outliers)
+print("Corresponding row names of outliers:")
+print(rownames(usair[outliers,]))
+```
+
+Examining the boxplots reveals that Wind is the only variable without potential outliers. Observation 9 appears to be an outlier for Temperature, and therefore, even without enlarging the whiskers, we decide to mark it because it could be useful for further analysis. Observations 11 and 29 could be outliers for both Manufacturing and Population, while observations 18 and 27 are positioned near the edges (whiskers). However  Observation 27 disappears if we enlarge the whisker slightly, and therefore we do not consider it as an outlier. In particular, 18 results as an outlier in the enlarged whiskers for the variable Population and therefore we have decided to mark it as an outlier. For Precipitation and Days, observations 1 and 23 might be outliers for both variables and they result also as extreme outlier for the variable Precip. Similarly to observation 27 for Manuf, observation 25 for Days is likely not an outlier due to its proximity to the upper whisker.
+
+In summary, observations 1, 9, 11, 18, 23, and 29 are potential outliers based on their individual positions within the data distribution.
+
+```{r}
+outliers <- c(1, 9, 11, 18,23, 29)
+col.index<-rep("black",41)
+col.index[outliers] <- lookup<-c("darkgreen", "turquoise", "magenta", "purple",
+          "blue", "red")
+```
+
+```{r,echo=FALSE}
+# Create labels for outliers
+label_outliers <- rep("", nrow(usair))
+label_outliers[outliers] <- as.character(outliers)
+```
+\section{1.3}
+Normal Q-Q plots are useful tools to assess normality in data. Each plot displays the theoretical quantiles of a normal distribution on the x-axis and the sample quantiles of the observed data on the y-axis. Ideally, data points should fall close to a straight diagonal line plotted in blue. Deviations from this line suggest potential departures from normality.
+```{r,echo=F}
+x_bar=colMeans(usair)
+```
+
+```{r}
+#3. Construct a normal Q-Q plot for each variable and comment about normality.
+par(mfrow = c(2, 3))
+par(mar = c(2, 2, 1, 1), cex = 0.8)
+for (i in 1:p) {
+  qqnorm(usair[,i],main=names(usair)[i],pch=16,col=col.index)
+  qqline(usair[,i])
+  qqx <- qqnorm(usair[,i],main=names(usair)[i],plot=F)$x
+  qqy <- qqnorm(usair[,i],main=names(usair)[i],plot=F)$y
+  text(qqx[outliers],qqy[outliers],row.names(usair[outliers,]),pos=c(4,2,2,2,2,2))
+}
+```
+We see that the only variables that cluster closely around the Q-Q line and the sample mean and have no problems in the tails are Temp and Wind, which seem to be distributed pretty similarly to a normal. The variables which have the most significantly different observations from the theoretical expectations are Manuf and Pop which display unusual tail behavior; their distribution is similar, because of the almost perfect correlation between the two: an outlier for one will almost certainly be an outlier for the other. In both cases, the outliers are Philadelphia, Chicago, and Detroit which we already identified in the previous point using boxplots.
+Also Phoenix and Alburquerque have values that considerably differ from the theoretical quantiles;
+
+To continue the investigation of normality in the data, we can calculate both skewness and kurtosis for each variable. 
+
+```{r, render = lemon_print,warning=FALSE}
+print(apply(usair,2,skewness))
+print(apply(usair,2,kurtosis))
+```
+
+Manufacturing and Population clearly demonstrate non-normality. Their rightward skew and heavy tails are strong indicators of distributions that differ from the normal pattern. We now examine how their distributions change after removing the potential outliers. 
+
+```{r echo=F,fig.align="center", fig.height=3}
+new_usair <- usair[-c(11,18, 29), ]
+par(mfrow = c(1.5, 3), mar = c(1, 2, 1, 1))
+
+selected_columns <- c(2, 3)
+for (j in selected_columns) {
+  qqnorm(new_usair[, j], main = names(new_usair)[j], pch = 16)
+  qqline(new_usair[, j], col = "blue",lwd=2)
+}
+```
+
+```{r, render = lemon_print,warning = FALSE}
+print(apply(new_usair[,2:3],2,skewness))
+print(apply(new_usair[,2:3],2,kurtosis))
+```
+```{r, echo = F, fig.height=3.5}
+par(mfrow = c(1, 2))
+title <- c("Manufactory", "Population")
+for (j in 1:selected_columns) {
+    x <- new_usair[, j]
+    hist(x, probability = TRUE, main = title[j], breaks = 10)
+    lines(density(x), col = "blue", lwd = 3)
+    mu <- mean(x)
+    sigma <- sd(x)
+    lines(sort(x), dnorm(sort(x), mean = mu, sd = sigma), col = "red", lwd = 3)
+}
+
+```
+Removing observations 11 and 29 influences the normality of Manufacturing and Population. Manufacturing exhibits a slight rightward skew, but its right tail becomes lighter. Without outliers, the distribution of the variable appears gaussian, however, it's important to note that the presence of 3 outliers in 44 observations is highly unlikely under the assumption of a truly Gaussian variable. This discrepancy highlights a challenge in assuming normality in datasets with limited observations. However, for the remainder of our analysis, we assume that all variables are normally distributed.
+
+\section{1.4}
+Looking at all the possible pairs of scatter plots we confirm our impressions about Chicago, Philadelphia and Phoenix: all these points seem to "break" the normality of the data. Detroit and Alburquerque do not seem to differ that much from the other points in the various bivariate representations. 
+```{r,fig.align="center",  fig.height=4}
+# Create a scatterplot matrix with colored points
+pairs(usair, pch = 16, lower.panel = NULL, col=col.index)
+# Enable clipping for legend outside plot area
+par(xpd = TRUE)
+
+# Add legend for univariate outliers
+legend(x = "bottomleft", 
+       legend = rownames(usair[outliers,]), 
+       col = lookup, 
+       pch = 16, 
+       title = "Univariate outliers", 
+       cex = 0.6)
+```
+
+
+
+
+In order to have a more detailed analysis, we plot some of the scatter plots with the contours plot of a an appropriate Gaussian, and check which are the points that fall outside the ellipses, which are at levels 0.95 and 0.988.
+
+```{r,fig.height=2}
+S = cov(usair)
+par(mfrow=c(1,3))
+
+for(i in 1:5){
+  for(j in (i+1):6){
+    plot(usair[,j] ~ usair[,i], xlab=names(usair)[i], ylab=names(usair)[j], col=col.index,pch=16)
+    lines(ellipse(x=S[c(i,j),c(i,j)], centre=colMeans(usair)[c(i,j)], level=0.95), col="red",lwd=1)
+    lines(ellipse(x=S[c(i,j),c(i,j)], centre=colMeans(usair)[c(i,j)], level=0.988), col="blue",lwd=1)
+}
+}
+```
+In particular we delve our analysis in some scatter plot for further investigation:
+
+```{r, echo=F}
+par(mfrow=c(2,2))
+
+# Plot 1: Temperature vs Population
+plot(Temp~Pop,data=usair,pch=16,xlab="Population size",ylab="TemperatureF (year avg.)",col=col.index,ylim=c(25,80), main="Temperature vs Population")
+text(usair$Pop[11],usair$Temp[11],"Chicago",pos=2)
+lines(ellipse(x=var(usair[,c(3,1)]),center=colMeans(usair[,c(3,1)]),level=1-0.5/n),col=2)
+legend("bottomright", legend = "98,8% Confidence Ellipse", col = 2, lty = 1, cex=0.5,bg="white")
+
+# Plot 2: Wind Speed vs Population
+plot(Wind~Pop,data=usair,pch=16,xlab="Population size",ylab="Wind speed (miles/hour year avg.)",col=col.index,ylim=c(3,15), main="Wind Speed vs Population")
+text(usair$Pop[11],usair$Wind[11],"Chicago",pos=2)
+lines(ellipse(x=var(usair[,c(3,4)]),center=colMeans(usair[,c(3,4)]),level=1-0.5/n),col=2)
+legend("bottomright", legend = "98,8% Confidence Ellipse", col = 2, lty = 1, cex=0.5,bg="white")
+
+# Plot 3: Days with Precipitations vs Population
+plot(Days~Pop,data=usair,pch=16,xlab="Population size",ylab="Days with precipitations (year avg.)",col=col.index,ylim=c(20,200), main="Days with Precipitations vs Population")
+text(usair$Pop[11],usair$Days[11],"Chicago",pos=2)
+text(usair$Pop[1],usair$Days[1],"Phoenix",pos=4)
+lines(ellipse(x=var(usair[,c(3,6)]),center=colMeans(usair[,c(3,6)]),level=1-0.5/n),col=2)
+legend("bottomright", legend = "98,8% Confidence Ellipse", col = 2, lty = 1, cex=0.5,bg="white")
+
+# Plot 4: Inches of Precipitations vs Population
+plot(Precip~Pop,data=usair,pch=16,xlab="Population size",ylab="Inches of precipitations (year avg.)",col=col.index,ylim=c(0,80), main="Inches of Precipitations vs Population")
+text(usair$Pop[11],usair$Precip[11],"Chicago",pos=2)
+lines(ellipse(x=var(usair[,c(3,5)]),center=colMeans(usair[,c(3,5)]),level=1-0.5/n),col=2)
+legend("bottomright", legend = "98,8% Confidence Ellipse", col = 2, lty = 1, cex=0.5,bg="white")
+```
+In the above scatterplot it appears that at level 0.988 Chicago is the only outlier, while the others fall inside the ellipses every time. Actually from this bivariate perspective, one could spot also the outlier Miami, which appears to be an outlier (at level 0.99) in the scatter-plot of the variables Temp and Days.
+
+```{r,echo=F, fig.height=3.5}
+plot(Temp~Days,data=usair,pch=16,xlab="Days with precipitations (year avg.)",ylab="F  (year avg.)",ylim=c(35,80),xlim=c(35,180),col=col.index)
+text(usair$Days[9],usair$Temp[9],"Miami",pos=3)
+text(usair$Days[1],usair$Temp[1],"Phoenix",pos=3)
+lines(ellipse(x=var(usair[,c(6,1)]),center=colMeans(usair[,c(6,1)]),level=1-0.5/n),col=2)
+legend("bottomleft", legend = "99% Confidence Ellipse", col = 2, lty = 1,,bg="white",cex=0.6)
+```
+In the next scatter plots we investigate the relationship between Wind and Days and Days, we have identified three bivariate outliers that were not apparent in the univariate analysis. To investigate their significance, we employ the Mahalanobis distance for calculating the indices of this outliers.
+```{r,echo=F, fig.height=3.5}
+S = cov(usair)
+i=4
+j=6
+plot(usair[,i],usair[,j], xlab=names(usair)[i], ylab=names(usair)[j], col=col.index,pch=16)
+lines(ellipse(x=S[c(i,j),c(i,j)], centre=colMeans(usair)[c(i,j)], level=0.95), col="red",lwd=2)
+lines(ellipse(x=S[c(i,j),c(i,j)], centre=colMeans(usair)[c(i,j)], level=1-0.5/n), col="red",lwd=2)
+text(usair[,i][outliers],usair[,j][outliers],row.names(usair[outliers,]),pos=c(4,4,4,4,4))
+legend(x = "bottomright", legend = c("98.8% Quantile", "95% Quantile"),
+       col = c("red", "red"), lty = 1, title = "Chi-square quantile", cex = 0.75,bg="white")
+```
+ 
+
+```{r,echo=F}
+x_DW = colMeans(usair[c("Days","Wind")])
+COV_DM = cov(usair[c("Days","Wind")])
+subset_usair <- usair[c("Days", "Wind")]
+biv_out=c(outliers,14,25,40)
+# Calculate Mahalanobis distances
+Biv_m <- mahalanobis(subset_usair, center = x_DW, cov = COV_DM)
+
+# Create a plot of squared Mahalanobis distances
+plot(Biv_m, pch = 16, main = "Bivariate outliers", xlab = "Observation",
+     ylab = "Squared Mahalanobis distance")
+
+# Add labels for outliers
+text(biv_out, Biv_m[biv_out],
+     labels = rownames(usair)[biv_out],pos=1)
+# Add reference lines for chi-square quantiles
+abline(h = qchisq(0.95, df = 2), lty = 2, col = "blue")
+abline(h = qchisq(1-0.5/n, df = 2), lty = 2, col = "gray15")
+
+# Add legend for chi-square quantiles
+legend(x = "topright", legend = c("98.8% Quantile", "95% Quantile"),
+       col = c("gray15", "blue"), lty = 2, title = "Chi-square quantile", cex = 0.75)
+
+
+# Calculate the threshold for the 95% quantile of chi-squared distribution
+threshold <- qchisq(0.95, df = length(subset_usair))
+
+# Identify the indices of points outside the 95% confidence ellipse
+outside_indices <- which(Biv_m > threshold)
+
+# Output the indices and corresponding outliers
+cat("Indices of outliers:", outside_indices, "and names:", rownames(usair[outside_indices,]))
+```
+We also observed that in the scatterplot of Wind and Temp, there is another potential outlier, Houston, at the 95% confidence level.
+```{r,  fig.height=4}
+plot(usair$Temp~usair$Wind, main="Scatterplot Wind vs Temp", xlab="Wind", ylab="Temperature",pch=16,col=col.index)
+lines(ellipse(x=(S[c(4,1),c(4,1)]), centre=x_bar[c(4,1)],level=0.95),
+      col="blue",lwd=1.5)
+lines(ellipse(x=(S[c(4,1),c(4,1)]), centre=x_bar[c(4,1)],level=0.988),
+      col="red",lwd=1.5)
+text(x=usair$Wind[1],y=usair$Temp[1], pos=4, labels="Phoenix",cex=0.75)
+text(x=usair$Wind[9],y=usair$Temp[9], pos=4, labels="Miami",cex=0.75)
+text(x=usair$Wind[14],y=usair$Temp[14], pos=2, labels="Wichita",cex=0.75)
+text(x=usair$Wind[35],y=usair$Temp[35], pos=4, labels="Houston",cex=0.75)
+# Add legend for chi-square quantiles
+legend(x = "bottomleft", legend = c("98.8% Quantile", "95% Quantile"),
+       col = c("red","blue"), lty = 1, title = "Chi-square quantile", cex = 0.75,bg="white")
+```
+At the end of the analysis, it was observed that the outliers previously identified as univariate outliers in cities such as Phoenix, Chicago, and Miami remained outliers in the bivariate analysis at a level of 99% (using the continuity correction). Additionally, new outliers emerged (at 95% level) in the bivariate analysis, including Wichita, Buffalo, Houston, and Charleston. On the other hand, some cities that exhibited univariate outlier behaviour (observation 29, Philadelphia) did not display bivariate outlier behaviour.
+
+
+\section{1.5}
+
+Now we check the multivariate normality using the squared Mahalanobis distance: such quantity should be distributed as a chi-squared with 6 degrees of freedom, if we assume that our data come from a multivariate normal of dimension 6. 
+
+```{r cache=T}
+d <- mahalanobis(usair, center = x_bar, cov = cov(usair))
+```
+
+Therefore, to assess multivariate normality, we can construct a Q-Q plot. This plot compares the quantiles of the observed squared Mahalanobis distances against the expected quantiles of a chi-square distribution with 6 degrees of freedom.
+
+```{r}
+d2 <- mahalanobis(usair,colMeans(usair),cov(usair))
+qqplot(qchisq(ppoints(d2),df=p),d2,xlab="Theoretical quantiles",ylab="Sample quantiles",pch=16,main="Q-Q plot Mahalanobis",col=col.index[order(d)])
+which(d2>14)
+text((qchisq(ppoints(d2),df=p))[39:41],sort(d2)[39:41],names(sort(d2)[39:41]),pos=2)
+abline(0,1,col=2)
+```
+In general the observations seem to be distributed as a $\chi^2$, except for the observations in the right tail, that are more distant from the theoretical quantiles and are Chicago, Phoenix and Miami.
+
+By removing the outliers, we find a multivariate normality in the Q-Q plot.
+```{r}
+new_usair <- usair[-c(1,9, 11), ]
+d_new <- mahalanobis(new_usair, center = colMeans(new_usair), cov = cov(new_usair))
+# Generate a chi-square Q-Q plot of Mahalanobis distances
+plot(qchisq(ppoints(d_new),df=p),sort(d_new),main="Chisq Q-Q plot without 3 outliers",
+xlab="Theoretical Quantiles",ylab="Sample Quantiles",pch=16)
+
+# Add diagonal reference line
+abline(0, 1, col = "blue",lwd=1)
+```
+\section{1.6}
+
+To further investigate the potential multivariate outliers identified in the Q-Q plot (observations 1, 9, and 11), we plot the squared Mahalanobis distances for each observation with critical values from the chi-square distribution with 6 degrees of freedom $\chi^2_6$. We can determine whether the observations are statistically unlikely to belong to the assumed multivariate normal distribution.
+```{r,echo=F}
+#6. Identify multivariate outliers, if any, and compare with the answer to point 1.
+plot(d2, pch=16, col=col.index,
+     main="T2 chart", xlab="obs", ylab="distance")
+text(outliers, d2[outliers],
+     labels = rownames(usair)[outliers],pos=4)
+abline(a=qchisq(1-0.5/n,p),b=0,lty=2)
+abline(a=qchisq(0.95,p),b=0,lty=3)
+legend("topright", legend = c("98.8% Quantile", "95% Quantile"), lty = c(2,3), col = "black", bty = "n")
+```
+We observe that the only two values falling outside the 99th percentile (using the continuity correction) of the $\chi^2$ distribution are Phoenix and Chicago, while the other univariate outliers are considerably lower. Another noteworthy observation is Miami, which exceeds the 95th percentile and could potentially be considered an outlier. Thus, it is notable that the cities identified as outliers in the univariate analysis are not necessarily outliers in the multivariate context. Conversely, some cities that were not identified as outliers for any individual variable were only flagged after considering multiple variables simultaneously, as observed in the bivariate analysis. Specifically, Miami was not deemed an "extreme" outlier in the univariate analysis (in comparison of other that are marked in the figure) but persists as an outlier in the multivariate analysis.
+
+In conclusion, our analysis reveals a mixed pattern in outlier consistency. While some outliers identified in bivariate analysis do not persist as outliers in multivariate analysis, others consistently maintain outlier status across all analyses conducted.
+
+\newpage
+## Exercise 2
+First we compute the covariance matrix of $X$:
+$$S_x=\text{Var}(X)=V\text{Var}(Z)V^T+\text{Var}(\varepsilon)=\sigma_z^2VI_qV^T+\sigma^2I_p$$
+Where we used the independence of $Z$ and $\varepsilon$, then, the total variance is given by
+$$\text{tr}(S_x)=\sigma_z^2\text{tr}(VV^T)+\sigma^2\text{tr}(I_p)=\sigma_z^2\text{tr}(V^TV)+\sigma^2p=\sigma_z^2q+\sigma^2p$$
+Where we used the properties of the trace and the fact that $V^TV=I_q$ since the columns of $V$ are orthogonal and with unit norm.
+
+Now notice that $VV^T$ is a symmetric $p\times p$ matrix with rank $q<p$, thus we can perform the spectral decomposition and we know that only $q$ eigenvalues will be not null since the rank of the matrix is $q$:
+$$VV^T=PDP^T$$
+In particular notice that since
+$$(VV^T)V=V$$
+then by definition, each column of $V$ is an eigenvector for $VV^T$ and 1 is the relative eigenvalue, which therefore has multiplicity $q$. Thus the matrix $D$ of the spectral decomposition is defined as
+$$D=\begin{pmatrix}I_q&O_{q,q-p}\\O_{q-p,q}&O_{q-p,q-p}\end{pmatrix}$$
+Therefore, since the matrix $P$ in the spectral decomposition can be chosen to be orthogonal we get that
+
+$$P^TS_xP=\sigma_z^2P^T(VV^T)P+\sigma^2P^TP=\sigma_z^2D+\sigma^2I_p=\begin{pmatrix}(\sigma^2_z+\sigma^2)I_q&O_{q,q-p}\\O_{q-p,q}&\sigma^2I_{q-p}\end{pmatrix}$$
+Thus it is clear that the biggest $q$ eigenvalues are $\sigma^2_z+\sigma^2$, therefore we get that
+$$\frac{\sum_{i=1}^q\lambda_i}{\text{tr}(S_x)}=\frac{(\sigma_z^2+\sigma^2)q}{\sigma_z^2q+\sigma^2p}\geq0.8\implies5q\sigma_z^2+5q\sigma^2\geq4q\sigma_z^2+4p\sigma^2\implies q\sigma^2_z\geq(4p-5q)\sigma^2$$
+$$(1+\delta)\sigma^2\geq\frac{4p-5q}{q}\sigma^2\implies\delta\geq \frac{4p-6q}{q}$$
+Notice that, since $\delta>-1$ we get that if $q>\frac{4}{5}p$, then the condition is satisfied for all $\delta$.
+
+\subsection{2.2}
+
+In our problem we have that:
+$$
+\boldsymbol{\mu} = \begin{pmatrix} 1 \\ 1 \\ 1 \end{pmatrix}
+\quad
+\boldsymbol{\Sigma}
+= 
+\frac{1}{9} \begin{bmatrix}
+  5 & -4 & 2 \\
+  -4 & 5 & 2 \\
+  2 & 2 & 8 \\
+\end{bmatrix} + \frac{1}{3} \begin{bmatrix}
+  1 & 0 & 0 \\
+  0 & 1 & 0 \\
+  0 & 0 & 1 \\
+\end{bmatrix}
+=
+\frac{1}{9}
+\left[
+\begin{array}{ccc}
+8 & -4 & 2  \\
+-4 & 8 & 2 \\
+2 & 2 & 11\\
+\end{array}
+\right]
+$$
+Let define 
+$$\boldsymbol{\Sigma} = \begin{pmatrix}
+  \Sigma_{11} & \Sigma_{12} \\
+  \Sigma_{21} & \Sigma_{22}
+\end{pmatrix}$$
+In the representation of the second matrix, the initial matrix can be denoted as follows:
+$$
+\boldsymbol{\Sigma} = 
+\frac{1}{9}
+\left[
+\begin{array}{cc|c}
+8 & -4 & 2  \\
+-4 & 8 & 2 \\
+\hline
+2 & 2 & 11\\
+\end{array}
+\right]
+=
+\left[
+\begin{array}{cc|c}
+\frac{8}{9} & -\frac{4}{9} & \frac{2}{9} \\
+-\frac{4}{9} & \frac{8}{9} & \frac{2}{9} \\
+\hline
+\frac{2}{9} & \frac{2}{9} & \frac{11}{9} \\
+\end{array}
+\right]
+$$
+With
+$$
+\Sigma_{11} = \begin{bmatrix}
+\frac{8}{9} & -\frac{4}{9} \\
+-\frac{4}{9} & \frac{8}{9} \\
+\end{bmatrix}, \quad
+\Sigma_{12} = \begin{bmatrix}
+\frac{2}{9} \\
+\frac{2}{9} \\
+\end{bmatrix}, \quad
+\Sigma_{21} = \begin{bmatrix}
+\frac{2}{9} & \frac{2}{9} \\
+\end{bmatrix}, \quad
+\Sigma_{22} = \frac{11}{9}
+$$
+
+$$
+\boldsymbol{\mu}_1= \begin{bmatrix}
+    1 \\
+    1 \\
+\end{bmatrix}, \quad
+\boldsymbol{\mu}_2=[1].
+$$
+Recall that if \( X = (X_1, X_2) \sim \mathcal{N}_p(\boldsymbol{\mu}, \boldsymbol{\Sigma}) \) with
+$$ \boldsymbol{\mu} = \begin{pmatrix} \boldsymbol{\mu}_1 \\ \boldsymbol{\mu}_2 \end{pmatrix} \quad \text{and} \quad \boldsymbol{\Sigma} = \begin{pmatrix} \boldsymbol{\Sigma}_{11} & \boldsymbol{\Sigma}_{12} \\ \boldsymbol{\Sigma}_{21} & \boldsymbol{\Sigma}_{22} \end{pmatrix} $$
+Then the conditional distribution of \( X_1 \) given \( X_2 = x_2 \) is a multivariate normal of dimension \( p - q \):
+$$ X_1 | X_2 = x_2 \sim \mathcal{N}_{p-q}(\boldsymbol{\mu}_1 + \boldsymbol{\Sigma}_{12} \boldsymbol{\Sigma}_{22}^{-1} (x_2 - \boldsymbol{\mu}_2), \boldsymbol{\Sigma}_{11} - \boldsymbol{\Sigma}_{12} \boldsymbol{\Sigma}_{22}^{-1} \boldsymbol{\Sigma}_{21}) $$
+Therefore, we can compute the parameters of the distributions \( X_1, X_2 | X_3 = -1 \):
+
+Now let calculate the parameter of the conditional distirbution:
+$$
+\boldsymbol{\mu}_c = \boldsymbol{\mu}_1 + \boldsymbol{\Sigma}_{12} \left(\boldsymbol{\Sigma}_{22}\right)^{-1} \left(-1 - \boldsymbol{\mu}_2\right)
+$$
+$$
+\boldsymbol{\Sigma}_c = \boldsymbol{\Sigma}_{11} - \boldsymbol{\Sigma}_{12} \left(\boldsymbol{\Sigma}_{22}\right)^{-1} \boldsymbol{\Sigma}_{21}
+$$
+Substituting the matrix above we get:
+$$
+\boldsymbol{\mu}_c = 
+\begin{bmatrix}
+1 \\
+1 \\
+\end{bmatrix}
++ 
+\begin{bmatrix}
+\frac{2}{9} \\
+\frac{2}{9} \\
+\end{bmatrix}
+\left( \frac{11}{9} \right)^{-1} 
+\left( -1 - 
+1 \right) 
+= 
+\begin{bmatrix}
+    \frac{7}{11}\\
+     \frac{7}{11}\\
+\end{bmatrix}
+$$
+$$
+\boldsymbol{\Sigma}_c = 
+\begin{bmatrix}
+\frac{8}{9} & -\frac{4}{9} \\
+-\frac{4}{9} & \frac{8}{9} \\
+\end{bmatrix}
+- 
+\begin{bmatrix}
+\frac{2}{9} \\
+\frac{2}{9} \\
+\end{bmatrix}
+\left( \frac{11}{9} \right)^{-1} 
+\begin{bmatrix}
+\frac{2}{9} & \frac{2}{9} \\
+\end{bmatrix}
+=
+\begin{bmatrix}
+    \frac{28}{33} & -\frac{16}{33} \\
+    -\frac{16}{33} & \frac{28}{33}
+\end{bmatrix}
+$$
+
+In the 2-dimensional space of \( x = (x_1, x_2) \) by setting the constant \( c \) such that the ellipse contains 0.95 probability with respect to the joint distribution of \( X_1,X_2|X_3 = -1 \), the equation of the ellipse is:
+$$(x - \boldsymbol{\mu}_c)^T\boldsymbol{\Sigma}_c^{-1}(x-\boldsymbol{\mu}_c) = c^2$$
+with $c^2=\chi_{0.95}^2$.
+
+After some calculation we get:
+\begin{equation}
+    \frac{7}{4}\left(x_1 - \frac{7}{11}\right)^2 + 2\left(x_1 - \frac{7}{11}\right)\left(x_2 - \frac{7}{11}\right)+\frac{7}{4}\left(x_2 - \frac{7}{11}\right)^2 = \chi_{0.95}^2 = 5.991 \sim 6
+\end{equation}
+That is:
+\begin{equation}
+    \frac{7}{4}\left( x_1^2+x_2^2\right) + 2 x_1x_2- \frac{7}{2}\left(x_1+x_2\right) - \frac{83}{22}=0
+\end{equation}
+A Geogebra visualization of the ellipse in the figure 1.
+
+
+Recall that if $X=(X_1,X_2)\sim\mathcal{N}_p(\mu,\Sigma)$ with
+$$\mu=\begin{pmatrix}\boldsymbol{\mu}_1\\\boldsymbol{\mu}_2\end{pmatrix}\quad \Sigma=\begin{pmatrix}\boldsymbol{\Sigma}_{11}&\boldsymbol{\Sigma}_{12}\\\boldsymbol{\Sigma}_{21}&\boldsymbol{\Sigma}_{22}\end{pmatrix}$$
+Then the conditional distribution of $X_1$ given $X_2=x_2$ is a multivariate normal of dimension $p-q$:
+$$X_1|X_2=x_2\sim\mathcal{N}_{p-q}(\boldsymbol{\mu}_1+\boldsymbol{\Sigma}_{12}\boldsymbol{\Sigma}_{22}^{-1}(x_2-\boldsymbol{\mu}_2),\boldsymbol{\Sigma}_{11}-\boldsymbol{\Sigma}_{12}\boldsymbol{\Sigma}_{22}^{-1}\boldsymbol{\Sigma}_{21})$$
+The same calculation are done through the software:
+```{r}
+V=matrix(c(-1/3,2/3,2/3,2/3,-1/3,2/3),nrow=3,ncol=2)
+I3=matrix(c(1,0,0,0,1,0,0,0,1),nrow=3,ncol=3)
+Sig=V%*%t(V)+I3/3
+mu=c(1,1,1)
+mu1=mu[1:2]
+mu2=mu[3]
+Sig11=Sig[1:2,1:2]
+Sig12=Sig[1:2,3]
+Sig21=Sig[3,1:2]
+Sig22=Sig[3,3]
+muc=mu1+Sig12%*%solve(Sig22)%*%(-1-mu2)
+Sigc=Sig11-Sig12%*%solve(Sig22)%*%Sig21
+```
+
+Then we can represent the ellipse:
+
+```{r,echo=F}
+plot(muc[1],muc[2],xlim=c(-2,3),ylim=c(-2,3),type="n",xlab="X1",ylab="X2")
+lines(ellipse(x=Sigc,center=muc,level=0.95),col=2)
+```
+
+![Representation using geogebra](C:\Users\stefa\OneDrive\Desktop\Problem set\Ellipse.png)
+
+\newpage
+
+
+## 3: PCA
+
+# 3.1
+
+We import the data into the object `pendigits` and we remove the last column (the one with the `digit` attribute), since it won't be of use for now.
+
+```{r,render=lemon_print}
+pendigits<-read.table("data/pendigits.txt", sep=",",head=F)
+names(pendigits)<-c(paste0(rep(c("x","y"),8),rep(1:8,each=2)),"digit")
+head(pendigits)
+pend=pendigits[,-ncol(pendigits)]
+```
+
+We calculate multivariate mean, variance matrix and correlation matrix. Due to the number of variables it is difficult to extrapolate information from the correlation matrix. What we see is that the height values tend to have a strong positive (or negative) correlation with other y values (for example, the `y3` variable has a correlation of 0.78 with the variable `y4` and `y7` and `y8` have an even higher correlation of 0.857).
+
+```{r}
+bar.x=colMeans(pend) #finding multivariate mean
+n<-nrow(pend)
+S<-var(pend) #finding variance matrix
+R<-cor(pend) #finding correlation matrix
+```
+
+```{r fig.height=7,fig.align='center', fig.width=7}
+corrplot(R,method="color",
+         type="full", order="original", 
+         title="Visualization of correlation matrix", 
+         addCoef.col = "black",
+         insig = "pch",mar=c(0,0,1,0))
+```
+
+This visualization of the data helps in showing how the correlation matrix has a sort of bi-diagonal nature, with consecutive coordinates tending to be more correlated (especially in the $y$ dimension) and coordinates captured in further away moments tending to be less or negatively correlated.
+
+We now perform a principal components analysis on the data. To improve readability and interpretation we set the option `scale` to true so that the variables are scaled to have unit variance before the analysis:
+
+```{r}
+pendigits.pca=prcomp(pend, scale. =T)
+as.data.frame(summary(pendigits.pca)$importance)
+plot(x=1:16,y=cumsum(pendigits.pca$sdev^2),type='ol',ylab="Variance",xlab = "Components",main="Cumulated variance plot")
+abline(h=0.7*16,col=3,lty=2)
+abline(h=0.8*16,col=2,lty=2)
+legend("bottomright", legend = c("70%","80%"), lty = 2, col = c(3,2), bty = "n")
+```
+
+The summary reports the standard deviation of each principal component as well as the individual and cumulative proportion of the explained variance. From this last information we can already perform a choice regarding dimension reduction by retaining the principal components that cumulatively explain at least 80% of the total variance. On this criterion's basis we can then choose to retain the first 5 principal components, with the sixth one explaining $\approx$ 85% of the total variance. If we choose to accept that the cumulative explanation by the principal components is at least 70% of the total variance, then we may decide to retain four principal components.
+
+We then bring our attention to the `rotation` element of `pendigits.pca`. We can visualize how much each variable influences each principal component (that is, the measure of its loadings). Finding an interpretation of the relevance of each pen coordinate for each principal component is not a trivial task: it is worth noting, though, that for the first principal component the biggest (positive) loadings seem to belong to the coordinates of early pen strokes, while for the second principal component the same can be said for the central pen strokes.
+
+```{r fig.height=7, fig.width=7, fig.align='center'}
+corrplot(round(pendigits.pca$rotation, 2), method = "color"
+    , tl.col = "black", addCoef.col = "black", number.cex = 1,title = "Visualization of PCA loadings",mar=c(0,0,1,0))
+```
+
+We investigate further the variable reduction. Another criterion to choose how many components we should retain is by looking at the associated eigenvalues. Since the aim of variable reduction is to have enough components to explain as much as possible of the variance of the original variables we can select the eigenvalues that score above the average value of the eigenvalues associated to the principal component. Since we normalized the data before analyzing, it is enough to check for eigenvalues greater than 1.
+
+```{r}
+pendigits.pca$sdev[pendigits.pca$sdev^2>=1]
+```
+
+This criterion agrees with the previous one in retaining 5 principal components.
+
+Another criterion is to look for "elbow" or sudden value drops between eigenvalues. The screeplot of the data allows us to find a (not so pronounced) elbow at the fourth eigenvalue. The screeplot criterion suggests choosing $k$ eigenvalues, where the elbows happens at eigenvalue $k+1$. The screeplot also visualizes the a red line at variance 1, to help visualize the threshold below which, according to the previous criterion, we should stop retaining variables.
+
+```{r, fig.height=4, fig.width=7}
+screeplot(pendigits.pca,type = "l",col="blue",main = "Screeplot of PCA analysis")
+abline(h = 1, col = "red", lty = 3)
+abline(v = 4, col = "darkgreen", lty = 9)  
+legend("topright", legend = c("Eigenvalue = 1", "Elbow"), 
+       col = c("red", "darkgreen"), lty = c(3, 9), bty = "n")
+```
+
+In this case, the elbow method suggests choosing 3 principal components. This criterion is not in agreement with the previous two, but it is important noting that the "elbow" that we can find in this screeplot is not particularly obvious, so in absence of large evident drops in value the criterion may partially fail.
+
+So, in the end, the three criteria do not agree. Since two out of three propose to retain 5 variables, we find reasonable accepting this as an answer (which is still a great improvement from the initial 16 variables).
+
+# 3.2
+We plot the first three principal component against each other. For readability's sake we chose to color code the observation in the following way:
+
+```{=tex}
+\begin{itemize}
+\item as \textcolor{green}{green} the observaions that fall inside the 50\% confidence level ellipse;
+\item as \textcolor{yellow}{yellow} the observations that fall between the 50\% and the 75\% confidence level ellipse;
+\item as \textcolor{orange}{orange} the observations that fall between the 75\% the 95\% confidence level ellipse;
+\item as \textcolor{red}{red} the observations that fall outside these ellipses;
+\end{itemize}
+```
+We then pasted the actual cumulative percentage of the data over the plot to compare actual and theoretical proportions.
+
+```{r fig.height=5,fig.width=10}
+pendigits.pca3=pendigits.pca$x[,1:3]
+par(mfrow=c(1,3))
+d1=mahalanobis(pendigits.pca3[,c(2,1)],center = c(0,0),cov=var(pendigits.pca3[,c(2,1)]))
+index1 <- which(d1>qchisq(0.95,2))
+index1.2 <- which(d1>qchisq(0.75,2)&d1<=qchisq(0.95,2))
+index1.3 <- which(d1>qchisq(0.5,2)&d1<=qchisq(0.75,2))
+col.index1 <- rep("green",nrow(pendigits.pca3))
+col.index1[index1] <- "red" 
+col.index1[index1.2] <- "orange"
+col.index1[index1.3] <- "yellow"
+p1 <- round(length(index1)/nrow(pendigits.pca3),3)
+p1.2 <- round(length(index1.2)/nrow(pendigits.pca3),3)
+p1.3 <- round(length(index1.3)/nrow(pendigits.pca3),3)
+
+plot(pendigits.pca3[,1]~pendigits.pca3[,2],asp=1,col=col.index1,pch=16,xlab = "PC 2",ylab = "PC 1",main="PC 1 against PC 2")
+lines(ellipse(x=var(pendigits.pca3[,c(2,1)]),center=c(0,0),level=0.95),col="red")
+lines(ellipse(x=var(pendigits.pca3[,c(2,1)]),center=c(0,0),level=0.75),col="orange")
+lines(ellipse(x=var(pendigits.pca3[,c(2,1)]),center=c(0,0),level=0.5),col="yellow")
+text(0,0,paste((1-p1-p1.2-p1.3)*100,"%"))#should be 50%
+text(0,-3,paste((1-p1.2-p1)*100,"%"))#should be 75%
+text(0,-4,paste((1-p1)*100,"%"))#should be 95%
+
+d2=mahalanobis(pendigits.pca3[,c(3,1)],center = c(0,0),cov=var(pendigits.pca3[,c(3,1)]))
+index2 <- which(d2>qchisq(0.95,2))
+index2.2 <- which(d2>qchisq(0.75,2)&d2<=qchisq(0.95,2))
+index2.3 <- which(d2>qchisq(0.5,2)&d2<=qchisq(0.75,2))
+col.index2 <- rep("green",nrow(pendigits.pca3))
+col.index2[index2] <- "red" 
+col.index2[index2.2] <- "orange"
+col.index2[index2.3] <- "yellow"
+p2 <- round(length(index2)/nrow(pendigits.pca3),3)
+p2.2 <- round(length(index2.2)/nrow(pendigits.pca3),3)
+p2.3 <- round(length(index2.3)/nrow(pendigits.pca3),3)
+
+plot(pendigits.pca3[,1]~pendigits.pca3[,3],asp=1,col=col.index2,pch=16,xlab = "PC 3",ylab = "PC 1",main="PC 1 against PC 3")
+lines(ellipse(x=var(pendigits.pca3[,c(3,1)]),center=c(0,0),level=0.95),col="red")
+lines(ellipse(x=var(pendigits.pca3[,c(3,1)]),center=c(0,0),level=0.75),col="orange")
+lines(ellipse(x=var(pendigits.pca3[,c(3,1)]),center=c(0,0),level=0.5),col="yellow")
+text(0,-0,paste((1-p2-p2.2-p2.3)*100,"%"))#should be 50%
+text(0,-2.5,paste((1-p2.2-p2)*100,"%"))#should be 75%
+text(0,-3.7,paste((1-p2)*100,"%"))#should be 95%
+
+d3=mahalanobis(pendigits.pca3[,c(3,2)],center = c(0,0),cov=var(pendigits.pca3[,c(3,2)]))
+index3 <- which(d3>qchisq(0.95,2))
+index3.2 <- which(d3>qchisq(0.75,2)&d3<=qchisq(0.95,2))
+index3.3 <- which(d3>qchisq(0.5,2)&d3<=qchisq(0.75,2))
+col.index3 <- rep("green",nrow(pendigits.pca3))
+col.index3[index3] <- "red"
+col.index3[index3.2] <- "orange"
+col.index3[index3.3] <- "yellow"
+p3 <- round(length(index3)/nrow(pendigits.pca3),3)
+p3.2 <- round(length(index3.2)/nrow(pendigits.pca3),3)
+p3.3 <- round(length(index3.3)/nrow(pendigits.pca3),3)
+
+plot(pendigits.pca3[,2]~pendigits.pca3[,3],asp=1,col=col.index3,pch=16,xlab = "PC 2",ylab = "PC 3",main="PC 3 against PC 2")
+lines(ellipse(x=var(pendigits.pca3[,c(3,2)]),center=c(0,0),level=0.95),col="red")
+lines(ellipse(x=var(pendigits.pca3[,c(3,2)]),center=c(0,0),level=0.75),col="orange")
+lines(ellipse(x=var(pendigits.pca3[,c(3,2)]),center=c(0,0),level=0.5),col="yellow")
+text(0,0,paste((1-p3-p3.2-p3.3)*100,"%"))#should be 50%
+text(0,-2,paste((1-p3.2-p3)*100,"%"))#should be 75%
+text(0,-3.5,paste((1-p3)*100,"%"))#should be 95%
+```
+
+If the original data were normally distributed, also the principal components should be since they are linear combinations of the original variables; in particular each couple of variables form a multinormal vector should be again normally distributed, however it is difficult to be convinced of the normality of the PCs from these scatter plots. Indeed, we notice that in each case we have less probability mass than expected in the center of the distribution (50% is never reached) and that we have lighter tails than expected; Moreover, apart from the first plot, we observe a peculiar pattern in the tail observations, with some clusters of points that could be considered outliers under the assumption of normality indeed it seems that there is a mass point far from the distirbution.
+
+To investigate further, we consider the Mahalanobis distance and examine whether observations fall outside the critical values of $\chi^2$ at the 0.95 and 0.99 confidence levels. In this case, we observe a significant portion of the data exceeding each of these two thresholds. Additionally, the Q-Q plot indicates that the Mahalanobis distance does not follow a $\chi^2$ distribution with 3 degrees of freedom since it deviates too much from the straight line. In the Mahalanobis distance Q-Q plot, the sample quantiles are lower than the $\chi^2_3$ values for quantiles, suggesting that the Mahalanobis distances in your data are generally more concentrated than what would be expected under the $\chi^2_3$ distribution.
+
+```{r, echo = F, out.width = "100%", fig.align = "center", fig.asp = 0.6, out.width="80%"}
+d <- mahalanobis(pendigits.pca3, center = c(0, 0, 0), cov(pendigits.pca3))
+par(mfrow = c(1, 1))
+
+# Create QQ plot
+qqplot(qchisq(ppoints(d), 3), d, xlab = "Theoretical quantiles", ylab = "Sample quantiles",
+       main = "QQ Plot of Mahalanobis Distance")
+
+abline(0, 1, col = 2)
+
+plot(d, ylim = c(0, 25), main = "Mahalanobis Distance Plot",xlab="Observation",ylab="Squared Mahalanobis distance")
+
+abline(h = qchisq(0.95, 3), lty = 1, col = "green")
+abline(h = qchisq(0.99, 3), lty = 1, col = "blue")
+
+
+legend("topright", 
+       legend = c("0.95", "0.99"), 
+       lty = 1, 
+       col = c("green", "blue"), 
+       bty = "n",
+       title = "Critical Values")
+```
+
+# 3.3
+We can take a look to the scatter plots of the PCs, color-coded by which digit each observation represents:
+
+```{r,out.width="50%"}
+
+lookup=c("darkgreen", "turquoise", "darkred", "magenta", "purple",
+          "blue", "red", "lightgreen","orange","yellow") #vector of colors
+col.index=pendigits$digit
+for (i in 0:9){
+  col.index[col.index==i]=lookup[i+1]
+} #assigning colors to digits
+```
+
+```{r fig.height=5,fig.width=10}
+
+par(mfrow=c(1,3))
+plot(pendigits.pca3[,1]~pendigits.pca3[,2],asp=1,col=col.index,pch=16,xlab = "PC 2",ylab = "PC 1",main="PC 1 against PC 2")
+lines(ellipse(x=diag(pendigits.pca$sdev[2:3]^2),
+              centre=c(0,0),level=0.95), col="blue",lwd=1.5)
+legend(x = "topright", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       horiz = T,
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+plot(pendigits.pca3[,1]~pendigits.pca3[,3],asp=1,col=col.index,pch=16,xlab = "PC 3",ylab = "PC 1",main="PC 1 against PC 3")
+lines(ellipse(x=diag(pendigits.pca$sdev[2:3]^2),
+              centre=c(0,0),level=0.95), col="blue",lwd=1.5)
+legend(x = "topright", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       horiz = T,
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+plot(pendigits.pca3[,2]~pendigits.pca3[,3],asp=1,col=col.index,pch=16,xlab = "PC 3",ylab = "PC 2",main="PC 2 against PC 3")
+lines(ellipse(x=diag(pendigits.pca$sdev[2:3]^2),
+              centre=c(0,0),level=0.95), col="blue",lwd=1.5)
+legend(x = "toprigh", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       horiz = T,
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+```
+
+```{r fig.height=6,fig.align='center',fig.width=6,out.width="80%",echo = F}
+scatterplot3d(pendigits.pca$x[,1:3],color = col.index,main = "3D scatterplot of the first three PCs")
+legend(x = "right", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+```
+
+In the 2D and 3D scatterplots, after applying color coding, we observe that digits tend to cluster together. Interestingly, we notice that the previously mentioned mass points all correspond to the same digit. Moreover, different digits tend to show different behaviours. For example:
+
+\begin{itemize}
+\item from the 2d plots we can see how the 0 digit is clustered in a group that largely falls outside the ellipsis, signaling what could be a particularly non-normal or outlier-ish behaviour;
+\item from the 2d and 3d plots we can see how the 5 digit tends to cluster in two different zones away from each other;
+\item there are digits that looks more normally distributed on the scatterplot: for example, the 4 digit seems to show less dispersion.
+\end{itemize}
+We can further investigate this aspect with the chi square $Q-Q$ plot of the multivariate Mahalanobis distance.
+
+```{r,out.width="80%",fig.align='center',echo = F}
+plot(qchisq(ppoints(d),df=3),sort(d),main="Chisq Q-Q plot",
+xlab="Theoretical Quantiles",ylab="Sample Quantiles",
+col=col.index[order(d)],pch=16)
+legend(x = "topleft", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       horiz = T,
+       pch = 16, 
+       title = "Digits", 
+       cex = 0.7)
+abline(0,1)
+```
+
+Here the color coding reveals an interesting fact about the distribution: there are digits that are especially off the normal expectation, for example the 9 digit which is much more concentrated at the "tail" of the distribution than it should be under normality assumption. More information about this can be desumed from the color-coded Mahalanobis distance plot:
+
+```{r,out.width="80%",fig.align='center'}
+d<-mahalanobis(pendigits.pca$x[,1:3],center=c(0,0,0),cov=cov(pendigits.pca$x[,1:3]))
+plot(d,ylim=c(0,qchisq(1-0.05/n,df=3)),
+     pch=16,
+     col=col.index,
+     main="T2 chart in pen digits data", xlab="obs num",
+     ylab="squared distance")
+abline(h=qchisq(0.95,df=3), lty=2, col="red")
+abline(h=qchisq(0.99,df=3),lty=2, col="red")
+abline(h = qchisq(1 - 0.5/n, df = 3), lty = 2, col="red")
+
+text(x = 500, y = qchisq(0.95, df = 3), labels = paste0(0.95, "%"), pos = 3, col="red") 
+text(x = 500, y = qchisq(0.99, df = 3), labels = paste0(0.99, "%"), pos = 3, col="red") 
+text(x = 500, y = qchisq(1 - 0.5/n, df = 3), labels = paste0(round(1 - 0.5/n,5)*100, "%"), pos = 3, col="red") 
+#abline(h=qchisq(1-1/3,df=3),lty=2)
+legend(x = "topright", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9), 
+       col = lookup, 
+       horiz = T,
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+```
+
+Here, we can observe more clearly that the digits deviating most from normality are 9, 0, and 1. Particularly, some points could be considered outliers at the 99% confidence level. However, the number of outliers is relatively low compared to the sample size. By employing continuity correction, we find that no observations could be deemed outliers (since the threshold is approximately 1) due to the large sample size. This means that we are able to approximate the "real" distribution accurately, and there are no outliers present.
+
+# 3.4
+
+We start by analyzing a boxplot of the first three principal components.
+
+```{r,echo = F,fig.heigh=3}
+boxplot(pendigits.pca$x[,1:3],main="First three PCs boxplot",range=1.5)
+```
+
+The boxplot function reports as outlier any data point which is further than 1.5 $\times$ the interquartile range from the box. From the boxplot we can see that on this criterion's basis only the third principal component has outliers in the low-end of the data. 
+To further investigate this matter, we can plot the third principal component alongside the line that represents the limit of the lower whisker of the boxplot,
+
+```{r}
+plot(pendigits.pca$x[,3],col=col.index,main = "Third principal component",ylab="PC3",pch = 16)
+legend(x = "topright", 
+       legend = c(0,1, 2,3,4,5,6,7,8,9,"lower whisker"), 
+       col = append(lookup,"red"), 
+       bg="white",
+       horiz = F,
+       pch = c(16,16,16,16,16,16,16,16,16,16,NA), 
+       lty = c(NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,2),
+       cex = 0.5)
+abline(h=boxplot.stats(pendigits.pca$x[,3])$stats[1],lty=2,col="red")
+```
+From this plot we can already see how all outliers are 9 digits. To confirm that:
+```{r, fig.align='center',fig.height=8,fig.width=8,out.width="60%"}
+boxplot(pendigits.pca$x[,3], main="Boxplot of PC3")
+index=which(pendigits.pca$x[,3] %in% boxplot.stats(pendigits.pca$x[,3])$out)
+points(rep(1,length(index)),
+pendigits.pca$x[index,3],pch=16,col=col.index[index])
+pendigits$digit[index]
+```
+Analyzing the Mahalanobis distance from the theoretical quantiles, we can once more see the difference between the different digits. 
+
+```{r}
+d <- mahalanobis(pendigits.pca$x[,1:3], center = c(0,0,0), cov = cov(pendigits.pca$x[,1:3]))
+plot(d, ylim = c(0, qchisq(1-0.05/n, df = 3)),
+     pch = 16,
+     col = col.index,
+     main = "T2 chart in pen digits data", xlab = "Observations",
+     ylab = "Squared Mahalanobis distance")
+abline(h = qchisq(0.95, df = 3), lty = 2, col="red")
+abline(h = qchisq(0.99, df = 3), lty = 2, col="red")
+abline(h = qchisq(1 - 0.5/n, df = 3), lty = 2, col="red")
+text(x = 750, y = qchisq(1 - 0.5/n, df = 3), labels = paste0(round(1 - 0.5/n,5)*100, "%"), pos = 1, col="red") 
+text(x = 500, y = qchisq(0.95, df = 3), labels = paste0(0.95, "%"), pos = 3, col="red") 
+text(x = 500, y = qchisq(0.99, df = 3), labels = paste0(0.99, "%"), pos = 3, col="red") 
+
+legend(x = "topright", 
+       legend = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), 
+       col = lookup, 
+       horiz = TRUE,
+       pch = 16, 
+       title = "Digits", 
+       cex = 1)
+```
+Some digit 9 emerges as some of the most problematic points, potentially being a multivariate outlier across all levels of $\chi^2_3$ critical values. Additionally, numerous instances of digit 9 appear as univariate outliers with respect to the third component. Interestingly, in the multivariate context, many of these points could be considered outliers at the 99% confidence level, but not when applying continuity correction, likely due to the large sample size.
+
+
